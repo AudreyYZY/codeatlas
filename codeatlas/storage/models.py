@@ -1,12 +1,12 @@
 """Dataclass models for codeatlas entities."""
 
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 
 
 @dataclass
 class File:
     """A source file in the project."""
+
     id: int | None = None
     path: str = ""
     rel_path: str = ""
@@ -19,6 +19,7 @@ class File:
 @dataclass
 class Symbol:
     """A code symbol (function, class, interface, variable, etc.)."""
+
     id: int | None = None
     file_id: int = 0
     name: str = ""
@@ -36,6 +37,7 @@ class Symbol:
 @dataclass
 class Import:
     """An import statement."""
+
     id: int | None = None
     file_id: int = 0
     symbol_name: str = ""
@@ -51,6 +53,7 @@ class Import:
 @dataclass
 class CallEdge:
     """A function call from one symbol to another (best-effort)."""
+
     id: int | None = None
     caller_file_id: int = 0
     caller_symbol_id: int | None = None
@@ -63,6 +66,7 @@ class CallEdge:
 @dataclass
 class DepEdge:
     """A file-level dependency edge."""
+
     id: int | None = None
     source_file_id: int = 0
     target_file_id: int | None = None  # NULL if external

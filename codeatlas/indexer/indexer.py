@@ -3,10 +3,11 @@
 import os
 import sqlite3
 import time
+
 from codeatlas.config import detect_project_name
-from codeatlas.scanner.scanner import scan_files
 from codeatlas.indexer.parser import parse_file
-from codeatlas.indexer.resolver import resolve_import_path, parse_tsconfig_aliases
+from codeatlas.indexer.resolver import parse_tsconfig_aliases, resolve_import_path
+from codeatlas.scanner.scanner import scan_files
 from codeatlas.storage.schema import init_db
 
 
@@ -27,7 +28,9 @@ def _insert_file(conn: sqlite3.Connection, result: dict) -> int:
     return cur.lastrowid
 
 
-def _insert_symbols(conn: sqlite3.Connection, file_id: int, symbols: list[dict]) -> dict[tuple, int]:
+def _insert_symbols(
+    conn: sqlite3.Connection, file_id: int, symbols: list[dict]
+) -> dict[tuple, int]:
     """Insert symbols and return a map of (name, file_id) → symbol_id."""
     sym_id_map: dict[tuple, int] = {}
     for sym in symbols:
@@ -38,10 +41,17 @@ def _insert_symbols(conn: sqlite3.Connection, file_id: int, symbols: list[dict])
                 parent_symbol, enclosing_type)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                file_id, sym["name"], sym["kind"],
-                sym["line_start"], sym["line_end"], sym["signature"],
-                sym["is_export"], sym["is_default_export"], sym["is_async"],
-                sym.get("parent_symbol"), sym.get("enclosing_type"),
+                file_id,
+                sym["name"],
+                sym["kind"],
+                sym["line_start"],
+                sym["line_end"],
+                sym["signature"],
+                sym["is_export"],
+                sym["is_default_export"],
+                sym["is_async"],
+                sym.get("parent_symbol"),
+                sym.get("enclosing_type"),
             ),
         )
         sym_id_map[(sym["name"], file_id)] = cur.lastrowid
@@ -71,23 +81,31 @@ def _insert_imports(
                 line, resolved_path, resolved_file_id, is_type_import)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                file_id, imp["symbol_name"], imp["alias_name"],
-                source, imp["import_type"], imp["line"],
-                resolved_rel, resolved_file_id, imp.get("is_type_import", False),
+                file_id,
+                imp["symbol_name"],
+                imp["alias_name"],
+                source,
+                imp["import_type"],
+                imp["line"],
+                resolved_rel,
+                resolved_file_id,
+                imp.get("is_type_import", False),
             ),
         )
 
         # Also insert a dependency edge (file-level)
         if resolved_file_id:
             conn.execute(
-                "INSERT INTO dependency_edges (source_file_id, target_file_id, resolved) VALUES (?, ?, 1)",
+                """INSERT INTO dependency_edges
+                   (source_file_id, target_file_id, resolved) VALUES (?, ?, 1)""",
                 (file_id, resolved_file_id),
             )
             resolved_count += 1
         elif source.startswith((".", "@", "/")):
             # Internal import but unresolved
             conn.execute(
-                "INSERT INTO dependency_edges (source_file_id, target_file_id, resolved) VALUES (?, NULL, 0)",
+                """INSERT INTO dependency_edges
+                   (source_file_id, target_file_id, resolved) VALUES (?, NULL, 0)""",
                 (file_id,),
             )
         # External packages (react, cesium...) don't get dep_edges
@@ -158,7 +176,7 @@ def index_project(project_path: str, project_name: str = None, verbose: bool = F
     for i, file_path in enumerate(files):
         rel_path = os.path.relpath(file_path, project_root)
         if verbose:
-            print(f"   [{i+1}/{len(files)}] {rel_path}")
+            print(f"   [{i + 1}/{len(files)}] {rel_path}")
 
         try:
             result = parse_file(file_path, aliases)
@@ -195,8 +213,12 @@ def index_project(project_path: str, project_name: str = None, verbose: bool = F
     with conn:
         for result in all_results:
             n_deps += _insert_imports(
-                conn, result["_file_id"], result["imports"],
-                project_root, aliases, rel_to_file_id,
+                conn,
+                result["_file_id"],
+                result["imports"],
+                project_root,
+                aliases,
+                rel_to_file_id,
             )
             n_imports += len(result["imports"])
 

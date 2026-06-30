@@ -1,6 +1,7 @@
 """SQL query functions for codeatlas."""
 
 import sqlite3
+
 from codeatlas.config import get_db_path
 
 
@@ -12,6 +13,7 @@ def _connect(project_name: str) -> sqlite3.Connection:
 
 
 # ── Stats ──
+
 
 def get_stats(conn: sqlite3.Connection) -> dict:
     return {
@@ -39,6 +41,7 @@ def get_top_imports(conn: sqlite3.Connection, limit: int = 10) -> list:
 
 
 # ── Symbols ──
+
 
 def find_symbols(conn: sqlite3.Connection, name: str) -> list:
     return conn.execute(
@@ -70,7 +73,7 @@ def list_symbols(conn: sqlite3.Connection, kind: str = None, exported_only: bool
         where.append("s.is_export = 1")
     return conn.execute(
         f"""SELECT s.*, f.rel_path FROM symbols s JOIN files f ON s.file_id = f.id
-            WHERE {' AND '.join(where)} ORDER BY s.kind, s.name""",
+            WHERE {" AND ".join(where)} ORDER BY s.kind, s.name""",
         params,
     ).fetchall()
 
@@ -85,6 +88,7 @@ def get_children_of(conn: sqlite3.Connection, parent_name: str) -> list:
 
 
 # ── Imports ──
+
 
 def find_imports_of_symbol(conn: sqlite3.Connection, symbol_name: str) -> list:
     return conn.execute(
@@ -115,6 +119,7 @@ def find_imports_from_module(conn: sqlite3.Connection, module_path: str) -> list
 
 
 # ── Call edges ──
+
 
 def find_callers(conn: sqlite3.Connection, symbol_name: str) -> list:
     """Who calls this symbol?"""
@@ -148,6 +153,7 @@ def get_symbol_by_name(conn: sqlite3.Connection, name: str) -> list:
 
 
 # ── Dependency edges ──
+
 
 def get_dependencies(conn: sqlite3.Connection, file_id: int) -> list:
     """Files that this file imports."""

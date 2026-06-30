@@ -1,14 +1,15 @@
 """Unified CLI for codeatlas."""
 
 import os
-import sys
-import click
 import sqlite3
+import sys
 
-from codeatlas.config import list_projects, detect_project_name, get_db_path
+import click
+
+from codeatlas.config import detect_project_name, get_db_path, list_projects
+from codeatlas.graph.mermaid import calls_to_mermaid, deps_to_mermaid
 from codeatlas.indexer.indexer import index_project
 from codeatlas.storage import queries
-from codeatlas.graph.mermaid import deps_to_mermaid, calls_to_mermaid
 
 
 def _get_project_name(project_arg: str | None = None) -> str:
@@ -25,7 +26,7 @@ def _connect(project_name: str) -> sqlite3.Connection:
         msg = f"No index found for '{project_name}'."
         if registered:
             msg += f"\nIndexed projects: {', '.join(registered)}"
-        msg += f"\nRun: codeatlas index <project-path>"
+        msg += "\nRun: codeatlas index <project-path>"
         click.echo(msg, err=True)
         sys.exit(1)
     conn = sqlite3.connect(db_path)
@@ -34,6 +35,7 @@ def _connect(project_name: str) -> sqlite3.Connection:
 
 
 # ── CLI Entry Point ──
+
 
 @click.group()
 @click.version_option(version="0.2.0", prog_name="codeatlas")
@@ -47,6 +49,7 @@ def cli():
 
 # ── Index ──
 
+
 @cli.command()
 @click.argument("path", default=".")
 @click.option("--name", default=None, help="Project name (default: directory name)")
@@ -57,6 +60,7 @@ def index(path: str, name: str | None, verbose: bool):
 
 
 # ── Stats ──
+
 
 @cli.command()
 @click.option("--project", default=None, help="Project name")
@@ -74,15 +78,16 @@ def stats(project: str | None):
     click.echo(f"   Imports: {s['imports']}")
     click.echo(f"   Calls:   {s['calls']}")
     click.echo(f"   Deps:    {s['deps']}")
-    click.echo(f"\n   Symbol kinds:")
+    click.echo("\n   Symbol kinds:")
     for r in kinds:
         click.echo(f"     {r['kind']:<18} {r['cnt']:>5}")
-    click.echo(f"\n   Top imports:")
+    click.echo("\n   Top imports:")
     for r in top:
         click.echo(f"     {r['source_path']:<45} {r['cnt']:>3}")
 
 
 # ── Symbols ──
+
 
 @cli.command()
 @click.argument("name")
@@ -102,10 +107,13 @@ def symbols(name: str, project: str | None):
         exp = "📤" if r["is_export"] else "  "
         sig = f"\n     → {r['signature']}" if r["signature"] else ""
         parent = f"  [{r['parent_symbol']}]" if r["parent_symbol"] else ""
-        click.echo(f"  {exp} {r['kind']:<16} {r['name']:<28} {r['rel_path']}:{r['line_start']}{parent}{sig}")
+        line = f"  {exp} {r['kind']:<16} {r['name']:<28} "
+        line += f"{r['rel_path']}:{r['line_start']}{parent}{sig}"
+        click.echo(line)
 
 
 # ── File ──
+
 
 @cli.command()
 @click.argument("path")
@@ -132,6 +140,7 @@ def file(path: str, project: str | None):
 
 # ── Imports ──
 
+
 @cli.command()
 @click.argument("name")
 @click.option("--project", default=None, help="Project name")
@@ -149,10 +158,13 @@ def imports(name: str, project: str | None):
     for r in rows:
         alias = f" as {r['alias_name']}" if r["alias_name"] else ""
         resolved = f" → {r['resolved_path']}" if r.get("resolved_path") else ""
-        click.echo(f"  {r['importer']}:{r['line']}  ← {r['source_path']} ({r['import_type']}{alias}){resolved}")
+        line = f"  {r['importer']}:{r['line']}  ← {r['source_path']}"
+        line += f" ({r['import_type']}{alias}){resolved}"
+        click.echo(line)
 
 
 # ── Used-by ──
+
 
 @cli.command(name="used-by")
 @click.argument("module")
@@ -181,6 +193,7 @@ def used_by(module: str, project: str | None):
 
 # ── List ──
 
+
 @cli.command()
 @click.option("--kind", default=None, help="Filter by kind (function, class, interface, ...)")
 @click.option("--exported", is_flag=True, help="Only exported symbols")
@@ -200,6 +213,7 @@ def list(kind: str | None, exported: bool, project: str | None):
 
 
 # ── Callers ──
+
 
 @cli.command()
 @click.argument("name")
@@ -221,6 +235,7 @@ def callers(name: str, project: str | None):
 
 
 # ── Callees ──
+
 
 @cli.command()
 @click.argument("name")
@@ -249,14 +264,13 @@ def callees(name: str, project: str | None):
 
     click.echo(f"\n📤 '{name}' calls {len(rows)} unique function(s):\n")
     for i, r in enumerate(rows):
-        end = "\n" if (i + 1) % 4 == 0 else ""
-        sep = "" if (i + 1) % 4 == 0 else ",  "
         click.echo(f"  {r['callee_name']:<30}", nl=(i + 1) % 4 != 0)
     if len(rows) % 4 != 0:
         click.echo()
 
 
 # ── Chain ──
+
 
 @cli.command()
 @click.argument("name")
@@ -284,12 +298,22 @@ def chain(name: str, depth: int, project: str | None):
 
 # ── Graph ──
 
+
 @cli.command()
 @click.argument("target")
-@click.option("--type", "graph_type", type=click.Choice(["deps", "calls"]), default="deps",
-              help="Graph type: file deps or symbol calls")
-@click.option("--direction", type=click.Choice(["downstream", "upstream"]), default="downstream",
-              help="For deps: downstream=what target imports, upstream=what imports target")
+@click.option(
+    "--type",
+    "graph_type",
+    type=click.Choice(["deps", "calls"]),
+    default="deps",
+    help="Graph type: file deps or symbol calls",
+)
+@click.option(
+    "--direction",
+    type=click.Choice(["downstream", "upstream"]),
+    default="downstream",
+    help="For deps: downstream=what target imports, upstream=what imports target",
+)
 @click.option("--depth", default=3, help="Max BFS depth")
 @click.option("--project", default=None, help="Project name")
 def graph(target: str, graph_type: str, direction: str, depth: int, project: str | None):
@@ -307,10 +331,15 @@ def graph(target: str, graph_type: str, direction: str, depth: int, project: str
 
 # ── Deps ──
 
+
 @cli.command()
 @click.argument("path")
-@click.option("--direction", type=click.Choice(["downstream", "upstream"]), default="downstream",
-              help="downstream=what this file imports, upstream=what imports this file")
+@click.option(
+    "--direction",
+    type=click.Choice(["downstream", "upstream"]),
+    default="downstream",
+    help="downstream=what this file imports, upstream=what imports this file",
+)
 @click.option("--depth", default=3, help="Max BFS depth")
 @click.option("--project", default=None, help="Project name")
 def deps(path: str, direction: str, depth: int, project: str | None):

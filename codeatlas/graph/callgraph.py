@@ -3,8 +3,6 @@
 import sqlite3
 from collections import defaultdict, deque
 
-from codeatlas.storage import queries
-
 
 def build_call_graph(conn: sqlite3.Connection) -> dict[str, list[str]]:
     """

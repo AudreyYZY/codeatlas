@@ -1,7 +1,6 @@
 """Path resolver: resolve import paths to real files."""
 
 import os
-from typing import Any
 
 # Path aliases parsed from tsconfig.json (e.g. {"@/*": "./*"}).
 # Can be injected at index time.
@@ -47,9 +46,7 @@ def parse_tsconfig_aliases(project_root: str) -> dict[str, str]:
 
 
 def resolve_import_path(
-    import_source: str,
-    project_root: str,
-    aliases: dict[str, str]
+    import_source: str, project_root: str, aliases: dict[str, str]
 ) -> tuple[str | None, str | None]:
     """
     Resolve an import source to a real file path relative to project_root.
@@ -71,7 +68,7 @@ def resolve_import_path(
     # 2. Resolve path aliases
     for alias_prefix, target_dir in aliases.items():
         if import_source.startswith(alias_prefix):
-            suffix = import_source[len(alias_prefix):]
+            suffix = import_source[len(alias_prefix) :]
             # Strip leading "/" before joining
             suffix = suffix.lstrip("/")
             resolved_rel = os.path.normpath(os.path.join(target_dir, suffix))

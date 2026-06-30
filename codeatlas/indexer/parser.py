@@ -6,8 +6,8 @@ declarations, plus imports, call expressions, and parent_symbol relationships.
 """
 
 import os
-from tree_sitter_languages import get_parser
 
+from tree_sitter_languages import get_parser
 
 # Kinds of declarations we care about — maps tree-sitter node type → our kind label
 DECLARATION_KINDS: dict[str, str] = {
@@ -24,15 +24,20 @@ DECLARATION_KINDS: dict[str, str] = {
 
 # Kinds where the name is stored in a `name` field child
 SIMPLE_NAME_BINDINGS: set[str] = {
-    "function_declaration", "generator_function_declaration",
-    "class_declaration", "interface_declaration",
-    "type_alias_declaration", "enum_declaration",
+    "function_declaration",
+    "generator_function_declaration",
+    "class_declaration",
+    "interface_declaration",
+    "type_alias_declaration",
+    "enum_declaration",
 }
 
 # Kinds that have a body we can scan for call expressions
 CALLABLE_KINDS: set[str] = {
-    "function_declaration", "generator_function_declaration",
-    "arrow_function", "method_definition",
+    "function_declaration",
+    "generator_function_declaration",
+    "arrow_function",
+    "method_definition",
 }
 
 # Ancestor node types that indicate a symbol is exported
@@ -45,7 +50,7 @@ def _parse():
 
 
 def _node_text(node, source_bytes: bytes) -> str:
-    return source_bytes[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+    return source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
 
 
 def _child_text_by_field(node, field_name: str, source_bytes: bytes) -> str | None:
@@ -87,21 +92,27 @@ def _collect_call_expressions(node, source_bytes: bytes, calls_out: list[dict]):
         func_node = node.child_by_field_name("function")
         if func_node:
             if func_node.type == "identifier":
-                calls_out.append({
-                    "name": _node_text(func_node, source_bytes),
-                    "is_member": False,
-                    "line": node.start_point[0] + 1,
-                })
+                calls_out.append(
+                    {
+                        "name": _node_text(func_node, source_bytes),
+                        "is_member": False,
+                        "line": node.start_point[0] + 1,
+                    }
+                )
             elif func_node.type == "member_expression":
                 obj = func_node.child_by_field_name("object")
                 prop = func_node.child_by_field_name("property")
                 if obj and prop:
-                    calls_out.append({
-                        "name": _node_text(prop, source_bytes),
-                        "is_member": True,
-                        "object": _node_text(obj, source_bytes) if obj.type == "identifier" else None,
-                        "line": node.start_point[0] + 1,
-                    })
+                    calls_out.append(
+                        {
+                            "name": _node_text(prop, source_bytes),
+                            "is_member": True,
+                            "object": _node_text(obj, source_bytes)
+                            if obj.type == "identifier"
+                            else None,
+                            "line": node.start_point[0] + 1,
+                        }
+                    )
     for child in node.children:
         _collect_call_expressions(child, source_bytes, calls_out)
 
@@ -161,11 +172,13 @@ def parse_file(file_path: str, aliases: dict[str, str] | None = None) -> dict:
             if name_node:
                 scope_name = _node_text(name_node, source_bytes)
                 scope_type = "class"
-        elif node.type in ("function_declaration", "method_definition"):
+        elif node.type in ("function_declaration",):
             name_node = node.child_by_field_name("name")
             if name_node:
                 scope_name = _node_text(name_node, source_bytes)
                 scope_type = "function"
+        # method_definition does NOT push a new scope for its own name —
+        # the enclosing class is already on the stack.
 
         if scope_name:
             scope_stack.append((scope_name, scope_type))
@@ -252,18 +265,20 @@ def parse_file(file_path: str, aliases: dict[str, str] | None = None) -> dict:
                 parent_symbol = scope_stack[-1][0] if scope_stack else None
                 enclosing_type = scope_stack[-1][1] if scope_stack else None
 
-                symbols.append({
-                    "name": name,
-                    "kind": kind,
-                    "line_start": node.start_point[0] + 1,
-                    "line_end": node.end_point[0] + 1,
-                    "signature": signature,
-                    "is_export": is_export,
-                    "is_default_export": is_default,
-                    "is_async": is_async,
-                    "parent_symbol": parent_symbol,
-                    "enclosing_type": enclosing_type,
-                })
+                symbols.append(
+                    {
+                        "name": name,
+                        "kind": kind,
+                        "line_start": node.start_point[0] + 1,
+                        "line_end": node.end_point[0] + 1,
+                        "signature": signature,
+                        "is_export": is_export,
+                        "is_default_export": is_default,
+                        "is_async": is_async,
+                        "parent_symbol": parent_symbol,
+                        "enclosing_type": enclosing_type,
+                    }
+                )
 
             # ── CALL EDGE COLLECTION ──
             if node.type in CALLABLE_KINDS:
@@ -282,7 +297,9 @@ def parse_file(file_path: str, aliases: dict[str, str] | None = None) -> dict:
                     _collect_call_expressions(body_node, source_bytes, body_calls)
                     caller_name = "anonymous"
                     if node.parent and node.parent.type == "variable_declarator":
-                        caller_name = _child_text_by_field(node.parent, "name", source_bytes) or "anonymous"
+                        caller_name = (
+                            _child_text_by_field(node.parent, "name", source_bytes) or "anonymous"
+                        )
                     elif node.parent and node.parent.type == "assignment_expression":
                         left = node.parent.child_by_field_name("left")
                         if left:
@@ -312,50 +329,60 @@ def parse_file(file_path: str, aliases: dict[str, str] | None = None) -> dict:
 
             if clause_node is None:
                 # Side-effect import
-                imports.append({
-                    "symbol_name": "",
-                    "alias_name": None,
-                    "source_path": source_text,
-                    "import_type": "side_effect",
-                    "line": line,
-                    "is_type_import": is_type,
-                })
+                imports.append(
+                    {
+                        "symbol_name": "",
+                        "alias_name": None,
+                        "source_path": source_text,
+                        "import_type": "side_effect",
+                        "line": line,
+                        "is_type_import": is_type,
+                    }
+                )
             else:
                 for child in clause_node.children:
                     if child.type == "identifier":
-                        imports.append({
-                            "symbol_name": _node_text(child, source_bytes),
-                            "alias_name": None,
-                            "source_path": source_text,
-                            "import_type": "default",
-                            "line": line,
-                            "is_type_import": is_type,
-                        })
+                        imports.append(
+                            {
+                                "symbol_name": _node_text(child, source_bytes),
+                                "alias_name": None,
+                                "source_path": source_text,
+                                "import_type": "default",
+                                "line": line,
+                                "is_type_import": is_type,
+                            }
+                        )
                     elif child.type == "named_imports":
                         for spec in child.children:
                             if spec.type == "import_specifier":
                                 sn = spec.child_by_field_name("name")
                                 sa = spec.child_by_field_name("alias")
                                 if sn:
-                                    imports.append({
-                                        "symbol_name": _node_text(sn, source_bytes),
-                                        "alias_name": _node_text(sa, source_bytes) if sa else None,
-                                        "source_path": source_text,
-                                        "import_type": "named",
-                                        "line": line,
-                                        "is_type_import": is_type,
-                                    })
+                                    imports.append(
+                                        {
+                                            "symbol_name": _node_text(sn, source_bytes),
+                                            "alias_name": _node_text(sa, source_bytes)
+                                            if sa
+                                            else None,
+                                            "source_path": source_text,
+                                            "import_type": "named",
+                                            "line": line,
+                                            "is_type_import": is_type,
+                                        }
+                                    )
                     elif child.type == "namespace_import":
                         ns = child.child_by_field_name("name")
                         if ns:
-                            imports.append({
-                                "symbol_name": _node_text(ns, source_bytes),
-                                "alias_name": None,
-                                "source_path": source_text,
-                                "import_type": "namespace",
-                                "line": line,
-                                "is_type_import": is_type,
-                            })
+                            imports.append(
+                                {
+                                    "symbol_name": _node_text(ns, source_bytes),
+                                    "alias_name": None,
+                                    "source_path": source_text,
+                                    "import_type": "namespace",
+                                    "line": line,
+                                    "is_type_import": is_type,
+                                }
+                            )
 
         # Recurse
         for child in node.children:

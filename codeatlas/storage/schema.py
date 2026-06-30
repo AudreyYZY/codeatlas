@@ -1,8 +1,8 @@
 """SQLite DDL for codeatlas."""
 
 import sqlite3
-from codeatlas.config import get_db_path
 
+from codeatlas.config import get_db_path
 
 SQL_STATEMENTS = [
     # ── Files ──
@@ -17,7 +17,6 @@ SQL_STATEMENTS = [
         indexed_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
     """,
-
     # ── Symbols ──
     """
     CREATE TABLE IF NOT EXISTS symbols (
@@ -35,7 +34,6 @@ SQL_STATEMENTS = [
         enclosing_type TEXT
     )
     """,
-
     # ── Imports ──
     """
     CREATE TABLE IF NOT EXISTS imports (
@@ -51,7 +49,6 @@ SQL_STATEMENTS = [
         is_type_import BOOLEAN DEFAULT 0
     )
     """,
-
     # ── Call edges (best-effort) ──
     """
     CREATE TABLE IF NOT EXISTS call_edges (
@@ -64,7 +61,6 @@ SQL_STATEMENTS = [
         resolved BOOLEAN DEFAULT 0
     )
     """,
-
     # ── Dependency edges (file-level) ──
     """
     CREATE TABLE IF NOT EXISTS dependency_edges (
@@ -74,7 +70,6 @@ SQL_STATEMENTS = [
         resolved BOOLEAN DEFAULT 0
     )
     """,
-
     # ── Indexes ──
     "CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name)",
     "CREATE INDEX IF NOT EXISTS idx_symbols_kind ON symbols(kind)",

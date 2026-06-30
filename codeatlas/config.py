@@ -1,8 +1,6 @@
 """Global config for codeatlas."""
 
 import os
-from dataclasses import dataclass, field
-
 
 # Root directory for all codeatlas data
 DATA_HOME = os.path.expanduser("~/.codeatlas")
@@ -25,8 +23,7 @@ def list_projects() -> list[str]:
     if not os.path.isdir(projects_dir):
         return []
     return sorted(
-        d for d in os.listdir(projects_dir)
-        if os.path.isdir(os.path.join(projects_dir, d))
+        d for d in os.listdir(projects_dir) if os.path.isdir(os.path.join(projects_dir, d))
     )
 
 
@@ -39,4 +36,15 @@ def detect_project_name(path: str) -> str:
 SUPPORTED_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx")
 
 # Directories to exclude when scanning
-EXCLUDE_DIRS = {"node_modules", ".next", ".git", "dist", "build", ".turbo", "coverage", "__pycache__", ".venv", "venv"}
+EXCLUDE_DIRS = {
+    "node_modules",
+    ".next",
+    ".git",
+    "dist",
+    "build",
+    ".turbo",
+    "coverage",
+    "__pycache__",
+    ".venv",
+    "venv",
+}
