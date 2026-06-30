@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codeatlas"
+version = "0.2.0"
+description = "A local-first, language-aware code knowledge base — like a personal Sourcegraph."
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    { name = "Audrey Yang" }
+]
+keywords = ["code-analysis", "typescript", "call-graph", "dependency-graph", "mermaid"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "tree-sitter>=0.21,<0.24",
+    "tree-sitter-languages>=1.10",
+    "click>=8.0",
+]
+
+[project.scripts]
+codeatlas = "codeatlas.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/audrey-y/codeatlas"
+Repository = "https://github.com/audrey-y/codeatlas"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["codeatlas*"]
