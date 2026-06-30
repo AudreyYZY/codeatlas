@@ -157,7 +157,7 @@ def imports(name: str, project: str | None):
     click.echo(f"\n📥 {len(rows)} file(s) import '{name}':\n")
     for r in rows:
         alias = f" as {r['alias_name']}" if r["alias_name"] else ""
-        resolved = f" → {r['resolved_path']}" if r.get("resolved_path") else ""
+        resolved = f" → {r['resolved_path']}" if r["resolved_path"] else ""
         line = f"  {r['importer']}:{r['line']}  ← {r['source_path']}"
         line += f" ({r['import_type']}{alias}){resolved}"
         click.echo(line)
