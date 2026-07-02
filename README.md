@@ -16,6 +16,8 @@
 
 Recommended for use with **Claude Code**, **Codex**, or any AI agent that needs structured context before prompting.
 
+[中文版 README](README_CN.md)
+
 </div>
 
 ---
@@ -281,7 +283,41 @@ All commands share a `--project <name>` flag to target a specific indexed projec
 
 ---
 
-## FAQ
+## Compared to Similar Tools
+
+### Code Knowledge Base Tools
+
+| Feature | CodeAtlas | [ZRead](https://github.com/bb-boy680/open-zread) | [DeepWiki](https://deepwiki.com) |
+|---------|-----------|--------------------------------------------------|----------------------------------|
+| **Core approach** | Static AST parsing + SQLite storage | AI Agent parallel wiki generation | AI-driven + public hosting |
+| **Storage** | Local SQLite | Local Markdown files | PostgreSQL / SQLite + Web |
+| **Query method** | CLI commands (symbol search, call graph, deps) | Browse generated Markdown pages | Web UI + chat assistant + MCP |
+| **Graph algorithms** | ✅ Call graph BFS, dependency graph BFS | ❌ None | ❌ Mind maps only |
+| **Languages** | TypeScript / JS (Python planned) | 14 (TS, JS, Vue, Go, Python, Rust, etc.) | Any (AI understands all) |
+| **Incremental updates** | ❌ Full rebuild | ✅ AST hash cache | ✅ Scheduled incremental workers |
+| **Requires LLM** | ❌ Not at all | ✅ Yes (75+ providers) | ✅ Yes |
+| **Runtime cost** | Free | ~$0.05-$0.20 per repo | API costs + hosting |
+| **Code leaves machine?** | ❌ Fully local | ❌ Only to LLM provider | ❌ Only to LLM provider |
+| **Output format** | SQLite + CLI results + Mermaid | Markdown + Mermaid | Markdown + Web pages + mind maps |
+| **Unique strength** | Symbol-level call graphs, zero cloud dependency | Parallel agents, diff-aware sync, Agent SDK | Public doc hosting, RBAC, MCP endpoints |
+
+**In short:**
+
+- **CodeAtlas** is static-analysis-first — no LLM needed, no API key, fully offline. You get a precise, queryable map of your code's structure.
+- **ZRead** is an AI-driven wiki generator — parallel Agents produce human-readable documentation pages. Great for team onboarding and code review, but costs LLM API fees per run.
+- **DeepWiki** focuses on public documentation hosting and team collaboration — Web UI, chat assistant, MCP endpoints. More of an enterprise-grade documentation platform.
+
+**These tools complement each other rather than compete.** A typical user workflow:
+
+```
+Use CodeAtlas for precise symbol queries and call tracing
+    ↓
+Feed CodeAtlas output into Claude Code / Codex
+    ↓
+Use ZRead or DeepWiki to generate team wikis
+```
+
+### Code Search Tools
 
 ### Does it send my code to the cloud?
 
