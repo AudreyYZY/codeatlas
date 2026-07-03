@@ -16,7 +16,31 @@
 
 推荐与 **Claude Code**、**Codex** 或任何需要在提问前获取结构化上下文的 AI 代理配合使用。
 
+[English README](README.md)
+
 </div>
+
+---
+
+## CodeAtlas 是什么？
+
+CodeAtlas 是一个**本地优先的代码知识库**。
+
+你指向一个 TypeScript/JS 项目，它将代码索引到本地 SQLite 数据库中。之后你可以查询符号、追踪调用链、映射依赖关系、生成图表 —— 全部离线运行，全部免费。
+
+它不是代码搜索工具。它不是 AI 文档生成器。它是一个**结构化的代码索引**，注重的是深度而非广度。
+
+---
+
+## 什么时候该用 CodeAtlas？
+
+- **理解陌生的代码仓库** — 直接跳到架构层面，跳过逐文件阅读
+- **准备技术面试** — 生成调用图和依赖图来解释一个系统
+- **编写架构文档** — 获取准确的符号清单和模块划分
+- **探索大型 TypeScript 项目** — 几秒内找到调用者、被调用者和依赖链
+- **为 LLM 提供高质量上下文** — 将结构化分析结果喂给 Claude / GPT，获得更丰富的提示
+
+如果你的任务涉及理解*代码之间的关系*，CodeAtlas 就是为此而生的。
 
 ---
 
@@ -56,17 +80,63 @@ LLM 会反复扫描同一段代码，白白消耗 token。
 
 ---
 
-## 它能做什么？
+## 它能生成什么？
 
-| 能力 | 说明 |
-|------|------|
-| **符号搜索** | 按名称在整个项目中查找函数、类、接口、类型、枚举和变量 |
-| **调用图** | 以可配置的深度（BFS）遍历谁调用了谁 |
-| **依赖图** | 映射文件级别的下游（导入）和上游（被导入）关系 |
-| **架构报告** | 获取文件数量、符号分类、导入热力图和模块摘要 |
-| **模块分析** | 检查一个模块的符号、调用者、被调用者和依赖关系 |
-| **Mermaid 导出** | 生成依赖图和调用链的 TD 图表 |
-| **tsconfig 别名支持** | 解析 `tsconfig.json` 中的 `@/`、`~/` 等路径别名 |
+### 架构报告
+
+```
+$ codeatlas stats
+
+📊 SkyTerrain
+   文件数:   59
+   符号数: 1049
+   导入数: 342
+   调用数: 1598
+   依赖数: 287
+
+   符号分类:
+     function              412
+     class                  98
+     interface              76
+     type                   54
+     enum                   23
+     variable              386
+```
+
+### 依赖图（Mermaid）
+
+```
+$ codeatlas graph ExplorerApp --type deps
+
+graph TD
+    ExplorerApp --> CesiumMap
+    ExplorerApp --> Camera
+    ExplorerApp --> Terrain
+    CesiumMap --> MapConfig
+    CesiumMap --> TileProvider
+    Camera --> Projection
+    Terrain --> Heightmap
+    Terrain --> Dataset
+```
+
+### 调用链
+
+```
+$ codeatlas chain handleSelectFeature --depth 2
+
+🔗 调用链: handleSelectFeature()
+
+    handleSelectFeature()
+      → updateSelection()
+      → renderFeature()
+      → notifyListeners()
+      updateSelection()
+        → clearPrevious()
+        → markActive()
+      renderFeature()
+        → drawGeometry()
+        → applyStyle()
+```
 
 ---
 
@@ -181,68 +251,6 @@ codeatlas deps lib/terrain.ts
 
 ---
 
-## 实际案例：SkyTerrain
-
-索引一个 TypeScript 项目后，你会得到：
-
-### 架构概览
-
-```
-$ codeatlas stats
-
-📊 SkyTerrain
-   文件数:   59
-   符号数: 1049
-   导入数: 342
-   调用数: 1598
-   依赖数: 287
-
-   符号分类:
-     function              412
-     class                  98
-     interface              76
-     type                   54
-     enum                   23
-     variable              386
-```
-
-### 依赖图（Mermaid）
-
-```
-$ codeatlas graph ExplorerApp --type deps
-
-graph TD
-    ExplorerApp --> CesiumMap
-    ExplorerApp --> Camera
-    ExplorerApp --> Terrain
-    CesiumMap --> MapConfig
-    CesiumMap --> TileProvider
-    Camera --> Projection
-    Terrain --> Heightmap
-    Terrain --> Dataset
-```
-
-### 调用链
-
-```
-$ codeatlas chain handleSelectFeature --depth 2
-
-🔗 调用链: handleSelectFeature()
-
-    handleSelectFeature()
-      → updateSelection()
-      → renderFeature()
-      → notifyListeners()
-      updateSelection()
-        → clearPrevious()
-        → markActive()
-      renderFeature()
-        → drawGeometry()
-        → applyStyle()
-```
-
----
-
 ## 命令参考
 
 所有命令都共享 `--project <name>` 标志来指定目标项目。
@@ -264,54 +272,17 @@ $ codeatlas chain handleSelectFeature --depth 2
 
 ---
 
-## 同类工具对比
+## 与其他工具的关系
 
-### 与代码知识库工具的比较
+CodeAtlas 专注于**本地优先的结构化索引**。它面向那些想要精确、可查询的代码关系，而不依赖云端或 LLM 成本的开发者。
 
-| 特性 | CodeAtlas | [ZRead](https://github.com/bb-boy680/open-zread) | [DeepWiki](https://deepwiki.com) |
-|------|-----------|--------------------------------------------------|----------------------------------|
-| **核心方法** | 静态 AST 解析 + SQLite 存储 | AI Agent 并行生成 Wiki 页面 | AI 驱动 + 公共托管 |
-| **存储** | 本地 SQLite | 本地 Markdown 文件 | PostgreSQL / SQLite + Web |
-| **查询方式** | CLI 命令（符号搜索、调用图、依赖图） | 浏览生成的 Markdown 页面 | Web UI + 聊天助手 + MCP |
-| **图算法** | ✅ 调用图 BFS、依赖图 BFS | ❌ 无 | ❌ 思维导图 |
-| **支持语言** | TypeScript / JS（Python 规划中） | 14 种（TS、JS、Vue、Go、Python、Rust 等） | 任意（AI 理解） |
-| **增量更新** | ❌ 全量重建 | ✅ AST 哈希缓存 | ✅ 定时增量 worker |
-| **需要 LLM** | ❌ 完全不需要 | ✅ 需要（75+ 提供商） | ✅ 需要 |
-| **运行成本** | 免费 | ~$0.05-$0.20 / 次 | API 费用 + 托管费用 |
-| **代码离开本机？** | ❌ 完全本地 | ❌ 仅发送给 LLM 提供商 | ❌ 仅发送给 LLM 提供商 |
-| **输出格式** | SQLite + CLI 结果 + Mermaid | Markdown + Mermaid | Markdown + Web 页面 + 思维导图 |
-| **独特优势** | 符号级调用图、零云依赖、完全免费 | 并行 Agent、差异感知同步、Agent SDK | 公共文档托管、RBAC、MCP 端点 |
+这个领域的其他工具采取了不同的路线：
 
-**简单说：**
+- **ZRead** 使用并行 Agent 从代码生成 AI 驱动的 Wiki 页面。它生成人类可读的文档，支持 14+ 种语言，但需要 LLM 提供商。
+- **DeepWiki** 提供 AI 生成的仓库文档，带有公共托管和团队协作功能。
+- **Sourcegraph** 为大型代码库提供强大的代码搜索能力，包括远程仓库。
 
-- **CodeAtlas** 是静态分析优先的工具 — 不需要 LLM，不需要 API Key，完全离线。你得到的是一张精确的、可查询的代码知识地图。
-- **ZRead** 是 AI 驱动的 Wiki 生成器 — 用并行 Agent 生成人类可读的文档页面，适合团队入职和代码审查，但需要 LLM API 费用。
-- **DeepWiki** 侧重公共文档托管和团队协作 — 提供 Web UI、聊天助手和 MCP 端点，定位更接近企业级文档平台。
-
-**三者不是替代关系，而是互补关系。** 很多用户的实际工作流是：
-
-```
-用 CodeAtlas 做精确的符号查询和调用追踪
-    ↓
-把 CodeAtlas 的输出喂给 Claude Code / Codex
-    ↓
-用 ZRead 或 DeepWiki 生成团队 Wiki
-```
-
-### 与代码搜索工具的比较
-
-| 特性 | CodeAtlas | Cursor | Sourcegraph |
-|-------|-----------|--------|-------------|
-| 本地优先 | ✅ | ❌ | ❌ |
-| SQLite 索引 | ✅ | ❌ | ❌ |
-| 架构报告 | ✅ | 有限 | ❌ |
-| 调用图遍历 | ✅ | 部分 | ✅ |
-| 依赖图 | ✅ | ❌ | ✅ |
-| Mermaid 导出 | ✅ | ❌ | ❌ |
-| 需要 LLM | ❌ | ✅ | ❌ |
-| tsconfig 别名支持 | ✅ | ❌ | ❌ |
-| 离线 / 无需网络 | ✅ | ❌ | ❌ |
-| 永久免费 | ✅ | 付费 | 付费层级 |
+这些工具解决的是相关但不同的问题。CodeAtlas 用精确的、可查询的代码结构（调用图、依赖树、符号清单）替代了 AI 生成的叙述性文档 —— 全部离线运行。
 
 ---
 

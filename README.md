@@ -22,6 +22,28 @@ Recommended for use with **Claude Code**, **Codex**, or any AI agent that needs 
 
 ---
 
+## What is CodeAtlas?
+
+CodeAtlas is a **local-first code knowledge base**.
+
+You point it at a TypeScript/JS project. It indexes the code into a local SQLite database. From then on, you can query symbols, trace call chains, map dependencies, and generate diagrams — all offline, all free.
+
+It is not a code search tool. It is not an AI documentation generator. It is a **structured index** of your codebase, designed for depth over breadth.
+
+---
+
+## When should I use CodeAtlas?
+
+- **Understanding unfamiliar repositories** — jump straight to the architecture, skip the file-by-file reading
+- **Preparing technical interviews** — generate call graphs and dependency maps to explain a system
+- **Writing architecture documentation** — get accurate symbol inventories and module breakdowns
+- **Exploring large TypeScript projects** — find callers, callees, and dependency chains in seconds
+- **Providing high-quality context for LLMs** — feed structured analysis output into Claude / GPT for richer prompts
+
+If your task involves understanding *how code relates to other code*, CodeAtlas is built for that.
+
+---
+
 ## Why CodeAtlas?
 
 Large repositories are hard to understand.
@@ -38,7 +60,7 @@ After indexing, you can:
 
 - **Find any symbol** — functions, classes, interfaces, types, enums, variables
 - **Trace call chains** — who calls this? what does this call? how deep?
-- **Map dependencies** — file-level downstream and upstream relationships
+- **Map dependencies** — file-level downstream (imports) and upstream (imported-by) relationships
 - **Generate Mermaid diagrams** — visual dependency graphs and call graphs
 - **Produce architecture reports** — module breakdowns, symbol counts, import heatmaps
 
@@ -58,17 +80,63 @@ Think of it as a **personal Sourcegraph Lite** — no cloud, no API keys, no per
 
 ---
 
-## What can it do?
+## What can it generate?
 
-| Capability | Description |
-|------------|-------------|
-| **Symbol Search** | Find functions, classes, interfaces, types, enums, and variables by name across the entire project |
-| **Call Graph** | Traverse who-calls-whom with configurable depth (BFS) |
-| **Dependency Graph** | Map file-level downstream (imports) and upstream (imported-by) relationships |
-| **Architecture Report** | Get file counts, symbol breakdowns, import heatmaps, and module summaries |
-| **Module Analysis** | Inspect a module's symbols, its callers, its callees, and its dependencies |
-| **Mermaid Export** | Generate TD diagrams for both dependency graphs and call chains |
-| **tsconfig Alias Support** | Resolves `@/`, `~/`, and other path aliases from `tsconfig.json` |
+### Architecture Report
+
+```
+$ codeatlas stats
+
+📊 SkyTerrain
+   Files:   59
+   Symbols: 1049
+   Imports: 342
+   Calls:   1598
+   Deps:    287
+
+   Symbol kinds:
+     function              412
+     class                  98
+     interface              76
+     type                   54
+     enum                   23
+     variable              386
+```
+
+### Dependency Graph (Mermaid)
+
+```
+$ codeatlas graph ExplorerApp --type deps
+
+graph TD
+    ExplorerApp --> CesiumMap
+    ExplorerApp --> Camera
+    ExplorerApp --> Terrain
+    CesiumMap --> MapConfig
+    CesiumMap --> TileProvider
+    Camera --> Projection
+    Terrain --> Heightmap
+    Terrain --> Dataset
+```
+
+### Call Chain
+
+```
+$ codeatlas chain handleSelectFeature --depth 2
+
+🔗 Call chain: handleSelectFeature()
+
+    handleSelectFeature()
+      → updateSelection()
+      → renderFeature()
+      → notifyListeners()
+      updateSelection()
+        → clearPrevious()
+        → markActive()
+      renderFeature()
+        → drawGeometry()
+        → applyStyle()
+```
 
 ---
 
@@ -183,68 +251,6 @@ That's it. Your knowledge base is ready to query anytime.
 
 ---
 
-## Real Example: SkyTerrain
-
-After indexing a TypeScript project, here's what you get:
-
-### Architecture Overview
-
-```
-$ codeatlas stats
-
-📊 SkyTerrain
-   Files:   59
-   Symbols: 1049
-   Imports: 342
-   Calls:   1598
-   Deps:    287
-
-   Symbol kinds:
-     function              412
-     class                  98
-     interface              76
-     type                   54
-     enum                   23
-     variable              386
-```
-
-### Dependency Graph (Mermaid)
-
-```
-$ codeatlas graph ExplorerApp --type deps
-
-graph TD
-    ExplorerApp --> CesiumMap
-    ExplorerApp --> Camera
-    ExplorerApp --> Terrain
-    CesiumMap --> MapConfig
-    CesiumMap --> TileProvider
-    Camera --> Projection
-    Terrain --> Heightmap
-    Terrain --> Dataset
-```
-
-### Call Chain
-
-```
-$ codeatlas chain handleSelectFeature --depth 2
-
-🔗 Call chain: handleSelectFeature()
-
-    handleSelectFeature()
-      → updateSelection()
-      → renderFeature()
-      → notifyListeners()
-      updateSelection()
-        → clearPrevious()
-        → markActive()
-      renderFeature()
-        → drawGeometry()
-        → applyStyle()
-```
-
----
-
 ## Commands
 
 All commands share a `--project <name>` flag to target a specific indexed project.
@@ -266,58 +272,21 @@ All commands share a `--project <name>` flag to target a specific indexed projec
 
 ---
 
-## Comparison
+## Compared to Other Tools
 
-| Feature | CodeAtlas | Cursor | Sourcegraph |
-|---------|-----------|--------|-------------|
-| Local-first | ✅ | ❌ | ❌ |
-| SQLite index | ✅ | ❌ | ❌ |
-| Architecture report | ✅ | Limited | ❌ |
-| Call graph traversal | ✅ | Partial | ✅ |
-| Dependency graph | ✅ | ❌ | ✅ |
-| Mermaid export | ✅ | ❌ | ❌ |
-| LLM required | ❌ | ✅ | ❌ |
-| tsconfig alias support | ✅ | ❌ | ❌ |
-| Offline / no network | ✅ | ❌ | ❌ |
-| Free forever | ✅ | Paid | Paid tier |
+CodeAtlas focuses on **local-first structured indexing** of TypeScript/JS codebases. It is designed for developers who want precise, queryable code relationships without cloud dependency or LLM cost.
+
+Other tools in this space take different approaches:
+
+- **ZRead** generates AI-driven wiki pages from code using parallel agents. It produces human-readable documentation and supports 14+ languages, but requires an LLM provider.
+- **DeepWiki** provides AI-generated repository documentation with public hosting and team collaboration features.
+- **Sourcegraph** offers powerful code search across large codebases, including remote repositories.
+
+These tools solve related but different problems. CodeAtlas trades AI-generated narrative for precise, queryable code structure — call graphs, dependency trees, symbol inventories — all running fully offline.
 
 ---
 
-## Compared to Similar Tools
-
-### Code Knowledge Base Tools
-
-| Feature | CodeAtlas | [ZRead](https://github.com/bb-boy680/open-zread) | [DeepWiki](https://deepwiki.com) |
-|---------|-----------|--------------------------------------------------|----------------------------------|
-| **Core approach** | Static AST parsing + SQLite storage | AI Agent parallel wiki generation | AI-driven + public hosting |
-| **Storage** | Local SQLite | Local Markdown files | PostgreSQL / SQLite + Web |
-| **Query method** | CLI commands (symbol search, call graph, deps) | Browse generated Markdown pages | Web UI + chat assistant + MCP |
-| **Graph algorithms** | ✅ Call graph BFS, dependency graph BFS | ❌ None | ❌ Mind maps only |
-| **Languages** | TypeScript / JS (Python planned) | 14 (TS, JS, Vue, Go, Python, Rust, etc.) | Any (AI understands all) |
-| **Incremental updates** | ❌ Full rebuild | ✅ AST hash cache | ✅ Scheduled incremental workers |
-| **Requires LLM** | ❌ Not at all | ✅ Yes (75+ providers) | ✅ Yes |
-| **Runtime cost** | Free | ~$0.05-$0.20 per repo | API costs + hosting |
-| **Code leaves machine?** | ❌ Fully local | ❌ Only to LLM provider | ❌ Only to LLM provider |
-| **Output format** | SQLite + CLI results + Mermaid | Markdown + Mermaid | Markdown + Web pages + mind maps |
-| **Unique strength** | Symbol-level call graphs, zero cloud dependency | Parallel agents, diff-aware sync, Agent SDK | Public doc hosting, RBAC, MCP endpoints |
-
-**In short:**
-
-- **CodeAtlas** is static-analysis-first — no LLM needed, no API key, fully offline. You get a precise, queryable map of your code's structure.
-- **ZRead** is an AI-driven wiki generator — parallel Agents produce human-readable documentation pages. Great for team onboarding and code review, but costs LLM API fees per run.
-- **DeepWiki** focuses on public documentation hosting and team collaboration — Web UI, chat assistant, MCP endpoints. More of an enterprise-grade documentation platform.
-
-**These tools complement each other rather than compete.** A typical user workflow:
-
-```
-Use CodeAtlas for precise symbol queries and call tracing
-    ↓
-Feed CodeAtlas output into Claude Code / Codex
-    ↓
-Use ZRead or DeepWiki to generate team wikis
-```
-
-### Code Search Tools
+## FAQ
 
 ### Does it send my code to the cloud?
 
