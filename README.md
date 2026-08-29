@@ -12,7 +12,9 @@
 
 <br>
 
-*A local-first code knowledge base that turns your TypeScript project into an indexable, queryable SQLite database — so you can understand architecture, trace call chains, and generate diagrams without reading every file.*
+*A local-first code knowledge base that turns a TypeScript, JavaScript or Python project into an indexable, queryable SQLite database — so you can understand architecture, trace call chains, spot import cycles and generate diagrams without reading every file.*
+
+**New in 0.3:** a built-in web UI (`codeatlas serve`), Python support, incremental indexing and cycle detection.
 
 Recommended for use with **Claude Code**, **Codex**, or any AI agent that needs structured context before prompting.
 
@@ -26,7 +28,7 @@ Recommended for use with **Claude Code**, **Codex**, or any AI agent that needs 
 
 CodeAtlas is a **local-first code knowledge base**.
 
-You point it at a TypeScript/JS project. It indexes the code into a local SQLite database. From then on, you can query symbols, trace call chains, map dependencies, and generate diagrams — all offline, all free.
+You point it at a TypeScript/JavaScript/Python project. It indexes the code into a local SQLite database. From then on, you can query symbols, trace call chains, map dependencies, detect import cycles and generate diagrams — all offline, all free, from the CLI or from a browser.
 
 It is not a code search tool. It is not an AI documentation generator. It is a **structured index** of your codebase, designed for depth over breadth.
 
@@ -61,8 +63,10 @@ After indexing, you can:
 - **Find any symbol** — functions, classes, interfaces, types, enums, variables
 - **Trace call chains** — who calls this? what does this call? how deep?
 - **Map dependencies** — file-level downstream (imports) and upstream (imported-by) relationships
+- **Detect import cycles** — strongly connected components in the file graph
 - **Generate Mermaid diagrams** — visual dependency graphs and call graphs
 - **Produce architecture reports** — module breakdowns, symbol counts, import heatmaps
+- **Explore it in a browser** — `codeatlas serve` opens an interactive dependency map, file browser and symbol explorer
 
 Think of it as a **personal Sourcegraph Lite** — no cloud, no API keys, no per-query cost. Just your code, indexed locally, queryable forever.
 
@@ -143,31 +147,31 @@ $ codeatlas chain handleSelectFeature --depth 2
 ## Architecture
 
 ```
-Your TypeScript Project
+Your project (TS / JS / Python)
         │
         ▼
    ┌─────────┐
-   │  Scan   │  Walk the directory tree, skip node_modules / dist / .git
+   │  Scan   │  Walk the tree; skip node_modules / dist / .venv / hidden dirs
    └────┬────┘
         ▼
    ┌─────────┐
    │  Parse  │  tree-sitter AST → symbols, imports, call edges
-   └────┬────┘
+   └────┬────┘  (parser.py dispatches by extension: ts_parser / py_parser)
         ▼
    ┌─────────────┐
-   │  Resolve    │  tsconfig aliases + extension resolution
-   └─────┬───────┘
+   │  Resolve    │  tsconfig aliases + extension order, or Python module paths —
+   └─────┬───────┘  always relative to the *importing* file
         ▼
-   ┌─────────────┐
-   │  SQLite DB  │  Local-first, WAL mode, project-isolated
-   │  ~/.codeatlas│
-   └─────┬───────┘
+   ┌──────────────┐
+   │  SQLite DB   │  Local-first, WAL mode, versioned schema, project-isolated
+   │  ~/.codeatlas│  (content hashes enable incremental re-indexing)
+   └─────┬────────┘
         │
         ▼
-   ┌──────────┐    ┌──────────┐    ┌────────────┐
-   │  Query   │    │  Graph   │    │  Mermaid   │
-   │  Symbols │    │  BFS     │    │  Export    │
-   └──────────┘    └──────────┘    └────────────┘
+ ┌────────┐ ┌────────┐ ┌────────┐ ┌─────────┐ ┌──────────┐
+ │ Query  │ │ Graph  │ │ Cycles │ │ Mermaid │ │  Web UI  │
+ │Symbols │ │  BFS   │ │ Tarjan │ │ Export  │ │ FastAPI  │
+ └────────┘ └────────┘ └────────┘ └─────────┘ └──────────┘
 ```
 
 ---
@@ -198,7 +202,12 @@ Here's how a developer might use CodeAtlas when joining a new project:
    codeatlas graph Camera --type deps
         │
         ▼
-6. Feed the output to an LLM for deeper analysis
+6. Read the generated walkthrough
+   codeatlas explain
+   codeatlas serve          # ...or explore it all in a browser
+        │
+        ▼
+7. Feed the output to an LLM for deeper analysis
    (or just read it — no LLM required)
 ```
 
@@ -209,7 +218,8 @@ Here's how a developer might use CodeAtlas when joining a new project:
 ### 1. Install
 
 ```bash
-pip install -e .
+pip install -e .            # CLI only
+pip install -e ".[web]"     # CLI + web UI
 ```
 
 ### 2. Index a project
@@ -247,6 +257,18 @@ codeatlas graph Camera --type deps
 codeatlas deps lib/terrain.ts
 ```
 
+### 4. Or explore it in a browser
+
+```bash
+codeatlas serve
+```
+
+Opens `http://127.0.0.1:8000`, where you can point at a folder (or drop a `.zip`),
+watch it index, and then read the generated walkthrough, pan around an interactive
+dependency map, browse files and symbols, and see any import cycles. The server binds
+to localhost and reads the same SQLite indexes the CLI writes — nothing is uploaded
+anywhere.
+
 That's it. Your knowledge base is ready to query anytime.
 
 ---
@@ -257,18 +279,26 @@ All commands share a `--project <name>` flag to target a specific indexed projec
 
 | Command | Description |
 |---------|-------------|
-| `index <path> [--name NAME] [--verbose]` | Index a TypeScript/TSX project into SQLite |
-| `stats` | Show index statistics (files, symbols, imports, calls, deps) |
-| `symbols <name>` | Find symbols by name across the project |
+| `index <path> [--name NAME] [--verbose] [--incremental]` | Index a TS/JS/Python project into SQLite |
+| `serve [--host H] [--port P] [--no-open]` | Start the web UI |
+| `explain [--json]` | Print a structured architecture report (modules, entry points, hotspots, cycles) |
+| `stats` | Show index statistics (files, lines, symbols, imports, calls, deps) |
+| `projects` | List every indexed project |
+| `symbols <name>` | Find symbols by name (`*` is a wildcard) |
 | `file <path>` | List all symbols defined in a file |
 | `imports <name>` | Find which files import a given symbol |
 | `used-by <module>` | Find which files import from a module |
-| `list [--kind KIND] [--exported]` | List symbols, optionally filtered by kind or export status |
+| `list [--kind KIND] [--exported] [--limit N]` | List symbols, optionally filtered |
 | `callers <name>` | Find who calls a given symbol |
 | `callees <name>` | Find what a given symbol calls |
 | `chain <name> [--depth N]` | Show recursive call chain from a symbol |
+| `cycles [--mermaid]` | Detect circular imports between files |
 | `graph <target> [--type deps\|calls] [--direction downstream\|upstream] [--depth N]` | Generate a Mermaid TD diagram |
 | `deps <path> [--direction downstream\|upstream] [--depth N]` | Show file-level dependency tree |
+| `export [-o FILE]` | Dump the whole index (report + files + symbols) as JSON |
+
+Re-running `index` rebuilds from scratch. Add `--incremental` to reuse rows for
+files whose contents are unchanged — much faster on large repos, same result.
 
 ---
 
@@ -302,7 +332,8 @@ Yes. Many users run CodeAtlas first, then paste the output (call chains, depende
 
 ### Which languages does it support?
 
-Currently: **TypeScript, TSX, JavaScript, JSX**. Python support is planned.
+**TypeScript, TSX, JavaScript, JSX, and Python** (`.ts .tsx .mts .cts .js .jsx .mjs .cjs .py .pyi`).
+Adding a language means writing one parser module — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### Where is the data stored?
 
@@ -310,7 +341,15 @@ Each indexed project gets its own SQLite database at `~/.codeatlas/projects/<pro
 
 ### Can I index the same project twice?
 
-Yes — running `codeatlas index` again will overwrite the previous index.
+Yes — running `codeatlas index` again overwrites the previous index. Use
+`--incremental` to only re-parse files whose contents changed.
+
+### Does the web UI send my code anywhere?
+
+No. `codeatlas serve` runs a local FastAPI server bound to `127.0.0.1`, reads the
+same local SQLite index, and ships its frontend as a single HTML file with no CDN
+requests. It can index and read any directory you can read, which is why you should
+not expose it on a public interface.
 
 ---
 
@@ -320,24 +359,28 @@ Yes — running `codeatlas index` again will overwrite the previous index.
 |-------|------------|
 | Language | Python 3.11+ |
 | CLI Framework | Click |
-| AST Parser | tree-sitter-languages (TSX) |
-| Storage | SQLite3 (WAL mode) |
-| Graph Algorithms | BFS with configurable depth |
+| AST Parser | tree-sitter via `tree-sitter-language-pack` (TSX + Python grammars) |
+| Storage | SQLite3 (WAL mode, versioned schema) |
+| Graph Algorithms | BFS with configurable depth; Tarjan's SCC for cycles |
 | Diagram Output | Mermaid TD syntax |
+| Web UI | FastAPI + a single dependency-free HTML file (canvas force layout) |
 
 ---
 
 ## Roadmap
 
-- [ ] Python parser support
-- [ ] Incremental indexing (only changed files)
-- [ ] Web UI for querying the index
+- [x] Python parser support
+- [x] Incremental indexing (only changed files)
+- [x] Web UI for querying the index
+- [x] Import cycle detection
+- [x] JSON export for programmatic access
+- [ ] Cross-file call resolution (today `call_edges` store callee names, resolved at query time)
+- [ ] Go / Rust / Java parsers
 - [ ] Symbol rename / refactor safety checks
-- [ ] Import cycle detection
-- [ ] API for programmatic access (Python SDK)
+- [ ] Watch mode (re-index on file change)
 
 ---
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
