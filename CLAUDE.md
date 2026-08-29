@@ -4,35 +4,41 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**codeatlas** is a CLI tool that indexes TypeScript/TSX/JavaScript/JSX projects into a local SQLite knowledge base, enabling symbol search, call graph traversal, dependency analysis, and Mermaid diagram generation. Think of it as a personal Sourcegraph Lite — index once, query forever, no cloud needed.
+**codeatlas** indexes TypeScript/TSX/JavaScript/JSX and Python projects into a local SQLite
+knowledge base, enabling symbol search, call graph traversal, dependency analysis, cycle
+detection, Mermaid diagram generation, and a local web UI. Index once, query forever, no
+cloud needed.
 
 ## Quick Commands
 
 ```bash
-# Install in editable mode
-pip install -e .
+# Install (web extras are needed for `codeatlas serve` and tests/test_web.py)
+pip install -e ".[web,dev]"
 
 # Run all tests
-pytest -v
+pytest
 
-# Run a single test file
-pytest tests/test_parser.py -v
+# Run a single test file / test
+pytest tests/test_indexer.py -v
+pytest tests/test_resolver.py::test_tsconfig_alias_resolves -v
 
-# Run a single test
-pytest tests/test_parser.py::test_parse_functions -v
-
-# Lint
+# Lint, format, type check — CI runs exactly these
 ruff check codeatlas/ tests/
-
-# Format
-ruff format codeatlas/ tests/
-
-# Type check
+ruff format --check codeatlas/ tests/
 mypy codeatlas/
+
+# Coverage
+pytest --cov=codeatlas --cov-report=term-missing
+
+# Run the web UI
+codeatlas serve
 
 # Build wheel
 pip install build && python -m build
 ```
+
+Tests set `CODEATLAS_HOME` to a temp dir via `tests/conftest.py`, so the suite never
+touches the developer's real `~/.codeatlas`.
 
 ## Architecture
 
@@ -41,83 +47,117 @@ pip install build && python -m build
 ```
 index_project()                        # indexer/indexer.py — orchestrator
  ├── scan_files()                     # scanner/scanner.py — walk directory tree
- ├── parse_file()                     # indexer/parser.py — tree-sitter AST extraction
- │   ├── symbols (functions, classes, interfaces, types, enums, variables)
- │   ├── imports (named, default, namespace, side-effect, type imports)
- │   └── call_edges (call expressions within callable bodies)
- ├── resolve_import_path()            # indexer/resolver.py — tsconfig aliases + extension resolution
+ ├── parse_file()                     # indexer/parser.py — dispatch by extension
+ │    ├── parse_ts_file()             # indexer/ts_parser.py  (tree-sitter TSX grammar)
+ │    └── parse_py_file()             # indexer/py_parser.py  (tree-sitter Python grammar)
+ ├── resolve_import_path()            # indexer/resolver.py — tsconfig aliases + extensions
+ │   resolve_python_import()          #                     — dotted modules + relative levels
  └── _insert_*()                      # indexer/indexer.py — two-pass SQLite insertion
       ├── Pass 1: files → symbols → call_edges
-      └── Pass 2: imports → dependency_edges (needs file_id map from pass 1)
+      └── Pass 2: imports → dependency_edges (needs the file_id map from pass 1)
 ```
 
 ### Module Structure
 
 ```
 codeatlas/
-├── cli.py                    # Click CLI — all commands (index, stats, symbols, callers, graph, etc.)
-├── config.py                 # DATA_HOME (~/.codeatlas), supported extensions, excluded dirs
-├── scanner/
-│   └── scanner.py            # os.walk file finder, skips node_modules/dist/.git etc.
+├── cli.py                    # Click CLI — every command
+├── config.py                 # CODEATLAS_HOME, language map, excluded dirs, name sanitising
+├── scanner/scanner.py        # os.walk file finder
 ├── indexer/
-│   ├── indexer.py            # Orchestrator: scan → parse → resolve → insert (two-pass)
-│   ├── parser.py             # tree-sitter TSX AST walker: symbols, imports, call expressions
-│   └── resolver.py           # tsconfig.json path alias parser + import path resolution
+│   ├── indexer.py            # Orchestrator, incremental logic, two-pass insertion
+│   ├── parser.py             # Language dispatch + result normalisation
+│   ├── ts_parser.py          # TS/TSX/JS/JSX AST walker
+│   ├── py_parser.py          # Python AST walker
+│   └── resolver.py           # tsconfig (JSONC) aliases; TS + Python import resolution
 ├── storage/
-│   ├── schema.py             # SQLite DDL: files, symbols, imports, call_edges, dependency_edges + indexes
-│   ├── models.py             # Dataclass definitions for each entity
-│   └── queries.py            # SQL query functions (find_symbols, find_callers, get_dependencies, etc.)
-└── graph/
-    ├── callgraph.py          # Symbol-level call graph BFS (build_call_graph, find_call_chain)
-    ├── dependency.py         # File-level dependency graph BFS (downstream/upstream_dependencies)
-    └── mermaid.py            # Mermaid TD diagram generators for deps and calls
+│   ├── schema.py             # DDL, SCHEMA_VERSION, meta table, drop-and-rebuild migration
+│   ├── models.py             # Dataclasses per entity
+│   └── queries.py            # Every SQL query lives here — nothing else writes SQL
+├── graph/
+│   ├── callgraph.py          # Symbol-level BFS (build_call_graph, find_call_chain)
+│   ├── dependency.py         # File-level BFS (downstream/upstream)
+│   ├── cycles.py             # Iterative Tarjan SCC + a displayable cycle path
+│   └── mermaid.py            # Mermaid generators (collision-free node ids)
+├── analysis/report.py        # The structured walkthrough: narrative, health signals, markdown
+└── web/
+    ├── server.py             # FastAPI app factory + REST API + background index jobs
+    └── static/index.html     # The entire frontend: one file, no CDN, no build step
 ```
 
-### Database Schema (5 tables, 13 indexes)
+### Database Schema (6 tables)
 
 | Table | Purpose |
 |-------|---------|
-| `files` | Source files with path, language, line/byte counts |
-| `symbols` | Declarations (functions, classes, interfaces, types, enums, variables) with parent_symbol/enclosing_type for nesting |
-| `imports` | Import statements with resolved_file_id linking to target files |
-| `call_edges` | Function call sites (caller_symbol_id → callee_name, best-effort resolution) |
-| `dependency_edges` | File-level edges (source → target, resolved boolean) |
+| `meta` | `schema_version`, `project_root`, `project_name`, `indexed_at` |
+| `files` | Source files with path, language, line/byte counts, mtime, `content_hash` |
+| `symbols` | Declarations with `parent_symbol`/`enclosing_type` for nesting |
+| `imports` | Import statements with `resolved_file_id` linking to target files |
+| `call_edges` | Call sites (`caller_symbol_id` → `callee_name`, best-effort resolution) |
+| `dependency_edges` | File-level edges, deduplicated with a `weight` count, `UNIQUE(source, target)` |
 
-Key relationships: `symbols.file_id → files.id`, `imports.resolved_file_id → files.id`, `call_edges.caller_symbol_id → symbols.id`.
+`SCHEMA_VERSION` in `storage/schema.py` gates compatibility: a database written by an
+older version is dropped and rebuilt on the next index run.
 
 ### CLI Design
 
-All commands use a shared `_connect(project_name)` helper that loads the SQLite DB for a project. The `--project` flag overrides the default (current directory name). Commands fall into four categories:
+All query commands use `_connect(project_name)`, which deliberately does *not* call
+`get_db_path()` (that creates directories). `--project` overrides the default, which is
+the current directory's name. Commands fall into six groups: indexing (`index`),
+statistics (`stats`, `projects`), explanation (`explain`, `export`), symbol queries
+(`symbols`, `file`, `imports`, `used-by`, `list`), call analysis (`callers`, `callees`,
+`chain`), and dependency analysis (`graph`, `deps`, `cycles`) — plus `serve`.
 
-1. **Indexing**: `index` — scan, parse, store
-2. **Querying**: `stats`, `symbols`, `file`, `imports`, `used-by`, `list` — symbol/import/file searches
-3. **Call analysis**: `callers`, `callees`, `chain` — symbol-level BFS on call graph
-4. **Dependency analysis**: `graph`, `deps` — file-level BFS + Mermaid output
+### Parser Details
 
-### Parser Details (parser.py)
+Both parsers return the same dict shape, documented at the top of `indexer/parser.py`.
+That contract is what lets storage, graphs, report and UI stay language-agnostic.
 
-- Uses `tree-sitter-languages` TSX parser (works for TS/JS/JSX too)
-- Tracks enclosing scope via a stack for `parent_symbol`/`enclosing_type` (methods belong to classes, nested funcs belong to outer funcs)
-- Extracts function signatures from AST (params + return type)
-- Collects call expressions recursively within callable bodies (handles both named functions and arrow functions)
-- Classifies import types: `named`, `default`, `namespace`, `side_effect`
-- Detects `import type`, `export`, `default export`, `async` modifiers
+- **ts_parser**: TSX grammar (works for TS/JS/JSX too). Tracks enclosing scope with a
+  stack for `parent_symbol`/`enclosing_type`. Classifies imports as `named`, `default`,
+  `namespace`, `side_effect`, `re_export` (`export … from` counts as a dependency).
+- **py_parser**: functions, classes, methods, module- and class-level assignments (never
+  function locals), `import x`, `from .y import z` with a `level` for relative depth.
+  `is_export` follows the leading-underscore convention.
+
+### Import Resolution — the subtle part
+
+`resolve_import_path` takes `from_file` and resolves relative specifiers against **that
+file's directory**, not the project root. Resolving `./x` against the root was a
+long-standing bug that silently emptied the dependency graph for every file outside the
+root. Alias prefixes are checked before the bare-specifier rule so `@/lib/x` (alias) and
+`@scope/pkg` (npm package) are told apart. `tsconfig.json` is parsed as JSONC — comments
+and trailing commas are normal there and `json.load` rejects them.
 
 ### Graph Algorithms
 
-Both `callgraph.py` and `dependency.py` use BFS with configurable depth (default 3). `callgraph.py` builds an adjacency list from `call_edges` grouped by `caller_name`. `dependency.py` builds from `dependency_edges` grouped by `source_file_id`. Both cap expansion at 10 callees per node to prevent blowup.
+`callgraph.py` and `dependency.py` build deduplicated adjacency lists and BFS with a
+configurable depth and fan-out cap. `cycles.py` runs an **iterative** Tarjan SCC, so a
+deep dependency chain cannot exhaust the recursion limit.
+
+### Web Layer
+
+`create_app()` is a factory (imports FastAPI lazily so the CLI works without the web
+extras). Index runs happen on a background thread with a polled job id. The frontend is a
+single HTML file with a hand-written canvas force-directed layout — no CDN, because the
+project promises to work fully offline.
 
 ## Testing Patterns
 
-- All tests use temporary directories/files for filesystem isolation
-- `test_queries.py` uses in-memory SQLite with pre-inserted sample data
-- Parser tests define inline TypeScript source strings and assert on extracted symbols/imports/calls
-- Scanner tests verify exclusion logic (node_modules, hidden dirs, build dirs)
+- `tests/conftest.py` provides `isolated_data_home` (autouse), `ts_project` and
+  `py_project` fixtures.
+- Parser tests define inline source strings and assert on extracted symbols/imports/calls.
+- `test_indexer.py` asserts on real resolved edges, dedup weights, cycles and the
+  incremental path (incremental output must equal full-reindex output).
+- `test_web.py` uses `importorskip("fastapi")` so it is skipped when web extras are absent.
 
 ## Key Implementation Notes
 
-- **Two-pass indexing**: First pass inserts files+symbols+calls to get file IDs. Second pass resolves imports against the file ID map. This is necessary because import resolution depends on knowing all file IDs upfront.
-- **Best-effort call resolution**: `call_edges` store `callee_name` as a string, not a resolved symbol ID. Resolution happens at query time via `find_callees`/`find_callers`.
-- **tsconfig alias support**: `resolver.py` parses `compilerOptions.paths` from `tsconfig.json` and maps alias prefixes (e.g., `@/`) to directory targets during import resolution.
-- **WAL mode**: Database uses `PRAGMA journal_mode = WAL` for concurrent read safety.
-- **Project isolation**: Each indexed project gets its own `~/.codeatlas/projects/<name>/index.db`.
+- **Two-pass indexing**: pass 1 inserts files+symbols+calls to obtain file IDs; pass 2
+  resolves imports against the complete ID map. Import resolution needs all IDs upfront.
+- **Incremental indexing** reuses rows for files whose SHA-256 is unchanged, but always
+  rebuilds *import* rows — an unchanged file's edges can still change when its neighbours do.
+- **Best-effort call resolution**: `call_edges` store `callee_name` as a string; resolution
+  happens at query time. Cross-file call resolution is still open (see the roadmap).
+- **Project isolation**: each project gets `$CODEATLAS_HOME/projects/<name>/index.db`.
+  Names are sanitised so a name can never escape that directory.

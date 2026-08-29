@@ -12,7 +12,9 @@
 
 <br>
 
-*一个本地优先的代码知识库工具，将你的 TypeScript 项目转化为可索引、可查询的 SQLite 数据库 —— 让你无需逐文件阅读就能理解架构、追踪调用链、生成图表。*
+*一个本地优先的代码知识库工具，把 TypeScript / JavaScript / Python 项目转化为可索引、可查询的 SQLite 数据库 —— 让你无需逐文件阅读就能理解架构、追踪调用链、发现循环依赖、生成图表。*
+
+**0.3 新增：** 内置 Web 可视化界面（`codeatlas serve`）、Python 支持、增量索引、循环依赖检测。
 
 推荐与 **Claude Code**、**Codex** 或任何需要在提问前获取结构化上下文的 AI 代理配合使用。
 
@@ -26,7 +28,7 @@
 
 CodeAtlas 是一个**本地优先的代码知识库**。
 
-你指向一个 TypeScript/JS 项目，它将代码索引到本地 SQLite 数据库中。之后你可以查询符号、追踪调用链、映射依赖关系、生成图表 —— 全部离线运行，全部免费。
+你指向一个 TypeScript / JavaScript / Python 项目，它将代码索引到本地 SQLite 数据库中。之后你可以查询符号、追踪调用链、映射依赖关系、检测循环依赖、生成图表 —— 全部离线运行，全部免费，命令行和浏览器里都能用。
 
 它不是代码搜索工具。它不是 AI 文档生成器。它是一个**结构化的代码索引**，注重的是深度而非广度。
 
@@ -37,7 +39,7 @@ CodeAtlas 是一个**本地优先的代码知识库**。
 - **理解陌生的代码仓库** — 直接跳到架构层面，跳过逐文件阅读
 - **准备技术面试** — 生成调用图和依赖图来解释一个系统
 - **编写架构文档** — 获取准确的符号清单和模块划分
-- **探索大型 TypeScript 项目** — 几秒内找到调用者、被调用者和依赖链
+- **探索大型 TypeScript / Python 项目** — 几秒内找到调用者、被调用者和依赖链
 - **为 LLM 提供高质量上下文** — 将结构化分析结果喂给 Claude / GPT，获得更丰富的提示
 
 如果你的任务涉及理解*代码之间的关系*，CodeAtlas 就是为此而生的。
@@ -61,8 +63,10 @@ LLM 会反复扫描同一段代码，白白消耗 token。
 - **查找任意符号** — 函数、类、接口、类型、枚举、变量
 - **追踪调用链** — 谁调用了它？它调用了谁？能追溯多深？
 - **映射依赖关系** — 文件级别的下游（导入）和上游（被导入）关系
+- **检测循环依赖** — 文件依赖图中的强连通分量
 - **生成 Mermaid 图表** — 可视化的依赖图和调用图
 - **产出架构报告** — 模块划分、符号统计、导入热力图
+- **在浏览器里探索** — `codeatlas serve` 打开交互式依赖地图、文件浏览器和符号查看器
 
 把它当作一个 **个人版 Sourcegraph Lite** — 不上云，不需要 API 密钥，没有按次计费。只是你的代码，本地索引，随时查询。
 
@@ -143,31 +147,31 @@ $ codeatlas chain handleSelectFeature --depth 2
 ## 架构
 
 ```
-你的 TypeScript 项目
+你的项目（TS / JS / Python）
         │
         ▼
    ┌─────────┐
-   │  扫描   │  遍历目录树，跳过 node_modules / dist / .git
+   │  扫描   │  遍历目录树，跳过 node_modules / dist / .venv / 隐藏目录
    └────┬────┘
         ▼
    ┌─────────┐
    │  解析   │  tree-sitter AST → 符号、导入、调用边
-   └────┬────┘
+   └────┬────┘  （parser.py 按扩展名分发到 ts_parser / py_parser）
         ▼
    ┌─────────────┐
-   │  解析路径   │  tsconfig 别名 + 扩展名解析
-   └─────┬───────┘
+   │  解析路径   │  tsconfig 别名 + 扩展名顺序，或 Python 模块路径 ——
+   └─────┬───────┘  始终相对于*发起导入的那个文件*
         ▼
-   ┌─────────────┐
-   │  SQLite 数据库  │  本地优先，WAL 模式，项目隔离
-   │  ~/.codeatlas│
-   └─────┬───────┘
+   ┌──────────────┐
+   │ SQLite 数据库 │  本地优先，WAL 模式，带版本的 schema，项目隔离
+   │  ~/.codeatlas│  （内容哈希支撑增量索引）
+   └─────┬────────┘
         │
         ▼
-   ┌──────────┐    ┌──────────┐    ┌────────────┐
-   │  查询    │    │  图算法  │    │  Mermaid   │
-   │  符号    │    │  BFS     │    │  导出      │
-   └──────────┘    └──────────┘    └────────────┘
+ ┌────────┐ ┌────────┐ ┌──────────┐ ┌─────────┐ ┌──────────┐
+ │  查询  │ │ 图算法 │ │ 循环检测 │ │ Mermaid │ │  Web UI  │
+ │  符号  │ │  BFS   │ │  Tarjan  │ │  导出   │ │ FastAPI  │
+ └────────┘ └────────┘ └──────────┘ └─────────┘ └──────────┘
 ```
 
 ---
@@ -198,7 +202,12 @@ $ codeatlas chain handleSelectFeature --depth 2
    codeatlas graph Camera --type deps
         │
         ▼
-6. 将输出喂给 LLM 进行更深入的分析
+6. 阅读自动生成的架构讲解
+   codeatlas explain
+   codeatlas serve          # ...或者直接在浏览器里探索
+        │
+        ▼
+7. 将输出喂给 LLM 进行更深入的分析
    （或者直接阅读 — 不需要 LLM）
 ```
 
@@ -209,7 +218,8 @@ $ codeatlas chain handleSelectFeature --depth 2
 ### 1. 安装
 
 ```bash
-pip install -e .
+pip install -e .            # 仅命令行
+pip install -e ".[web]"     # 命令行 + Web 界面
 ```
 
 ### 2. 索引项目
@@ -247,6 +257,16 @@ codeatlas graph Camera --type deps
 codeatlas deps lib/terrain.ts
 ```
 
+### 4. 或者在浏览器里探索
+
+```bash
+codeatlas serve
+```
+
+打开 `http://127.0.0.1:8000`：填一个目录路径（或直接拖进一个 `.zip`），看着它完成索引，
+然后阅读自动生成的架构讲解、拖动缩放交互式依赖地图、浏览文件与符号、查看循环依赖。
+服务只监听本机，读取的就是命令行写入的那份 SQLite 索引 —— 没有任何内容被上传。
+
 就这么简单。你的知识库随时待查。
 
 ---
@@ -257,18 +277,26 @@ codeatlas deps lib/terrain.ts
 
 | 命令 | 说明 |
 |------|------|
-| `index <path> [--name NAME] [--verbose]` | 将 TypeScript/TSX 项目索引到 SQLite |
-| `stats` | 显示索引统计（文件、符号、导入、调用、依赖） |
-| `symbols <name>` | 按名称在整个项目中查找符号 |
+| `index <path> [--name NAME] [--verbose] [--incremental]` | 将 TS/JS/Python 项目索引到 SQLite |
+| `serve [--host H] [--port P] [--no-open]` | 启动 Web 可视化界面 |
+| `explain [--json]` | 输出结构化架构报告（模块、入口、核心文件、循环依赖） |
+| `stats` | 显示索引统计（文件、行数、符号、导入、调用、依赖） |
+| `projects` | 列出所有已索引的项目 |
+| `symbols <name>` | 按名称查找符号（`*` 为通配符） |
 | `file <path>` | 列出文件中定义的所有符号 |
 | `imports <name>` | 查找哪些文件导入了给定符号 |
 | `used-by <module>` | 查找哪些文件从某模块导入 |
-| `list [--kind KIND] [--exported]` | 列出符号，可按类型或导出状态过滤 |
+| `list [--kind KIND] [--exported] [--limit N]` | 列出符号，可按类型或导出状态过滤 |
 | `callers <name>` | 查找谁调用了给定符号 |
 | `callees <name>` | 查找给定符号调用了什么 |
 | `chain <name> [--depth N]` | 显示符号的递归调用链 |
+| `cycles [--mermaid]` | 检测文件之间的循环导入 |
 | `graph <target> [--type deps\|calls] [--direction downstream\|upstream] [--depth N]` | 生成 Mermaid TD 图表 |
 | `deps <path> [--direction downstream\|upstream] [--depth N]` | 显示文件级依赖树 |
+| `export [-o FILE]` | 将整份索引（报告 + 文件 + 符号）导出为 JSON |
+
+再次运行 `index` 会完全重建索引。加上 `--incremental` 只会重新解析内容发生变化的文件 ——
+在大仓库上快得多，结果完全一致。
 
 ---
 
@@ -302,7 +330,8 @@ CodeAtlas 专注于**本地优先的结构化索引**。它面向那些想要精
 
 ### 支持哪些语言？
 
-目前：**TypeScript、TSX、JavaScript、JSX**。Python 支持已在规划中。
+**TypeScript、TSX、JavaScript、JSX 和 Python**（`.ts .tsx .mts .cts .js .jsx .mjs .cjs .py .pyi`）。
+新增一门语言只需要写一个 parser 模块，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ### 数据存在哪里？
 
@@ -310,7 +339,14 @@ CodeAtlas 专注于**本地优先的结构化索引**。它面向那些想要精
 
 ### 可以重复索引同一个项目吗？
 
-可以 — 再次运行 `codeatlas index` 会覆盖之前的索引。
+可以 —— 再次运行 `codeatlas index` 会覆盖之前的索引。加 `--incremental` 则只重新解析
+内容变化过的文件。
+
+### Web 界面会把我的代码传到哪里去吗？
+
+不会。`codeatlas serve` 启动的是绑定在 `127.0.0.1` 的本地 FastAPI 服务，读取本地 SQLite
+索引，前端是单个 HTML 文件、不请求任何 CDN。它能索引和读取当前用户能读的任意目录 ——
+正因如此，请不要把它暴露到公网。
 
 ---
 
@@ -320,24 +356,28 @@ CodeAtlas 专注于**本地优先的结构化索引**。它面向那些想要精
 |------|------|
 | 编程语言 | Python 3.11+ |
 | CLI 框架 | Click |
-| AST 解析器 | tree-sitter-languages (TSX) |
-| 存储 | SQLite3（WAL 模式） |
-| 图算法 | 可配置深度的 BFS |
+| AST 解析器 | tree-sitter（`tree-sitter-language-pack`，TSX + Python 语法） |
+| 存储 | SQLite3（WAL 模式，带版本的 schema） |
+| 图算法 | 可配置深度的 BFS；循环检测用 Tarjan 强连通分量 |
 | 图表输出 | Mermaid TD 语法 |
+| Web 界面 | FastAPI + 单个零依赖 HTML 文件（canvas 力导向布局） |
 
 ---
 
 ## 路线图
 
-- [ ] Python 解析器支持
-- [ ] 增量索引（仅变更文件）
-- [ ] 查询索引的 Web UI
+- [x] Python 解析器支持
+- [x] 增量索引（仅变更文件）
+- [x] 查询索引的 Web UI
+- [x] 导入循环检测
+- [x] 供程序调用的 JSON 导出
+- [ ] 跨文件调用解析（目前 `call_edges` 存的是被调用者名字，查询时才解析）
+- [ ] Go / Rust / Java 解析器
 - [ ] 符号重命名 / 重构安全检查
-- [ ] 导入循环检测
-- [ ] 编程访问 API（Python SDK）
+- [ ] 监听模式（文件变更自动重新索引）
 
 ---
 
 ## 许可证
 
-MIT
+MIT —— 见 [LICENSE](LICENSE)。
