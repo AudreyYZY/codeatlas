@@ -19,6 +19,10 @@ from codeatlas.storage.schema import get_meta, init_db, set_meta
 ProgressFn = Callable[[str, dict], None]
 
 
+def _to_posix(path: str) -> str:
+    return path.replace("\\", "/")
+
+
 def _file_hash(path: str) -> str:
     """Content hash used to decide whether a file needs re-parsing."""
     h = hashlib.sha256()
@@ -296,7 +300,7 @@ def index_project(
     all_results: list[dict] = []
 
     for i, file_path in enumerate(to_parse):
-        rel_path = os.path.relpath(file_path, project_root)
+        rel_path = _to_posix(os.path.relpath(file_path, project_root))
         if verbose:
             say(f"   [{i + 1}/{len(to_parse)}] {rel_path}")
         if progress and (i % 25 == 0 or i == len(to_parse) - 1):

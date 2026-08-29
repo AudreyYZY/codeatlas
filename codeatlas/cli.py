@@ -4,6 +4,8 @@ import json
 import os
 import sqlite3
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import click
 
@@ -37,6 +39,17 @@ def _connect(project_name: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@contextmanager
+def _project_conn(project_arg: str | None) -> Iterator[tuple[str, sqlite3.Connection]]:
+    """Yield (project_name, connection), always closing the connection."""
+    pname = _get_project_name(project_arg)
+    conn = _connect(pname)
+    try:
+        yield pname, conn
+    finally:
+        conn.close()
 
 
 # ── CLI Entry Point ──
@@ -101,32 +114,31 @@ def projects_cmd():
 @click.option("--project", default=None, help="Project name")
 def stats(project: str | None):
     """Show index statistics."""
-    pname = _get_project_name(project)
-    conn = _connect(pname)
-    s = queries.get_stats(conn)
-    kinds = queries.get_kind_counts(conn)
-    langs = queries.get_language_counts(conn)
-    top = queries.get_top_imports(conn)
+    with _project_conn(project) as (pname, conn):
+        s = queries.get_stats(conn)
+        kinds = queries.get_kind_counts(conn)
+        langs = queries.get_language_counts(conn)
+        top = queries.get_top_imports(conn)
 
-    click.echo(f"\n📊 {pname}")
-    click.echo(f"   Files:   {s['files']}")
-    click.echo(f"   Lines:   {s['lines']:,}")
-    click.echo(f"   Symbols: {s['symbols']}")
-    click.echo(f"   Imports: {s['imports']}")
-    click.echo(f"   Calls:   {s['calls']}")
-    click.echo(f"   Deps:    {s['deps']} resolved, {s['unresolved_deps']} unresolved")
+        click.echo(f"\n📊 {pname}")
+        click.echo(f"   Files:   {s['files']}")
+        click.echo(f"   Lines:   {s['lines']:,}")
+        click.echo(f"   Symbols: {s['symbols']}")
+        click.echo(f"   Imports: {s['imports']}")
+        click.echo(f"   Calls:   {s['calls']}")
+        click.echo(f"   Deps:    {s['deps']} resolved, {s['unresolved_deps']} unresolved")
 
-    click.echo("\n   Languages:")
-    for r in langs:
-        click.echo(f"     {r['language']:<18} {r['cnt']:>5} files  {r['lines']:>8,} lines")
+        click.echo("\n   Languages:")
+        for r in langs:
+            click.echo(f"     {r['language']:<18} {r['cnt']:>5} files  {r['lines']:>8,} lines")
 
-    click.echo("\n   Symbol kinds:")
-    for r in kinds:
-        click.echo(f"     {r['kind']:<18} {r['cnt']:>5}")
+        click.echo("\n   Symbol kinds:")
+        for r in kinds:
+            click.echo(f"     {r['kind']:<18} {r['cnt']:>5}")
 
-    click.echo("\n   Top imports:")
-    for r in top:
-        click.echo(f"     {r['source_path']:<45} {r['cnt']:>3}")
+        click.echo("\n   Top imports:")
+        for r in top:
+            click.echo(f"     {r['source_path']:<45} {r['cnt']:>3}")
 
 
 # ── Explain ──
@@ -139,13 +151,12 @@ def explain(project: str | None, as_json: bool):
     """Print a structured architecture report for the project."""
     from codeatlas.analysis.report import build_report, report_to_markdown
 
-    pname = _get_project_name(project)
-    conn = _connect(pname)
-    report = build_report(conn, pname)
-    if as_json:
-        click.echo(json.dumps(report, indent=2, default=str))
-    else:
-        click.echo(report_to_markdown(report))
+    with _project_conn(project) as (pname, conn):
+        report = build_report(conn, pname)
+        if as_json:
+            click.echo(json.dumps(report, indent=2, default=str))
+        else:
+            click.echo(report_to_markdown(report))
 
 
 # ── Cycles ──
@@ -159,23 +170,22 @@ def cycles(project: str | None, mermaid: bool):
     from codeatlas.graph.cycles import find_cycles, shortest_cycle_path
     from codeatlas.graph.dependency import build_dependency_graph
 
-    pname = _get_project_name(project)
-    conn = _connect(pname)
-    graph = build_dependency_graph(conn)
-    components = find_cycles(conn)
+    with _project_conn(project) as (_pname, conn):
+        graph = build_dependency_graph(conn)
+        components = find_cycles(conn)
 
-    if not components:
-        click.echo("✅ No import cycles found.")
-        return
+        if not components:
+            click.echo("✅ No import cycles found.")
+            return
 
-    paths = [shortest_cycle_path(graph, component) for component in components]
-    if mermaid:
-        click.echo(cycles_to_mermaid(paths))
-        return
+        paths = [shortest_cycle_path(graph, component) for component in components]
+        if mermaid:
+            click.echo(cycles_to_mermaid(paths))
+            return
 
-    click.echo(f"\n🔁 {len(components)} import cycle(s):\n")
-    for i, path in enumerate(paths, 1):
-        click.echo(f"  {i}. " + " → ".join(path))
+        click.echo(f"\n🔁 {len(components)} import cycle(s):\n")
+        for i, path in enumerate(paths, 1):
+            click.echo(f"  {i}. " + " → ".join(path))
 
 
 # ── Symbols ──
@@ -186,24 +196,23 @@ def cycles(project: str | None, mermaid: bool):
 @click.option("--project", default=None, help="Project name")
 def symbols(name: str, project: str | None):
     """Find symbols by name (use * as a wildcard)."""
-    pname = _get_project_name(project)
-    conn = _connect(pname)
-    rows = queries.find_symbols(conn, name)
-    if not rows:
-        rows = queries.search_symbols(conn, name)
+    with _project_conn(project) as (_pname, conn):
+        rows = queries.find_symbols(conn, name)
+        if not rows:
+            rows = queries.search_symbols(conn, name)
 
-    if not rows:
-        click.echo(f"No symbols matching '{name}'")
-        return
+        if not rows:
+            click.echo(f"No symbols matching '{name}'")
+            return
 
-    click.echo(f"\n🔍 {len(rows)} symbol(s) matching '{name}':\n")
-    for r in rows:
-        exp = "📤" if r["is_export"] else "  "
-        sig = f"\n     → {r['signature']}" if r["signature"] else ""
-        parent = f"  [{r['parent_symbol']}]" if r["parent_symbol"] else ""
-        line = f"  {exp} {r['kind']:<16} {r['name']:<28} "
-        line += f"{r['rel_path']}:{r['line_start']}{parent}{sig}"
-        click.echo(line)
+        click.echo(f"\n🔍 {len(rows)} symbol(s) matching '{name}':\n")
+        for r in rows:
+            exp = "📤" if r["is_export"] else "  "
+            sig = f"\n     → {r['signature']}" if r["signature"] else ""
+            parent = f"  [{r['parent_symbol']}]" if r["parent_symbol"] else ""
+            line = f"  {exp} {r['kind']:<16} {r['name']:<28} "
+            line += f"{r['rel_path']}:{r['line_start']}{parent}{sig}"
+            click.echo(line)
 
 
 # ── File ──
@@ -214,22 +223,21 @@ def symbols(name: str, project: str | None):
 @click.option("--project", default=None, help="Project name")
 def file(path: str, project: str | None):
     """List all symbols in a file."""
-    pname = _get_project_name(project)
-    conn = _connect(pname)
-    rows = queries.list_symbols_in_file(conn, path)
+    with _project_conn(project) as (_pname, conn):
+        rows = queries.list_symbols_in_file(conn, path)
 
-    if not rows:
-        click.echo(f"No symbols found in '{path}'")
-        return
+        if not rows:
+            click.echo(f"No symbols found in '{path}'")
+            return
 
-    file_path = rows[0]["rel_path"]
-    click.echo(f"\n📄 {file_path} — {len(rows)} definition(s):\n")
-    for r in rows:
-        exp = "[exp]" if r["is_export"] else ""
-        parent = f" ← {r['parent_symbol']}" if r["parent_symbol"] else ""
-        click.echo(f"  L{r['line_start']:>4}  {r['kind']:<16} {r['name']:<30} {exp}{parent}")
-        if r["signature"]:
-            click.echo(f"         → {r['signature']}")
+        file_path = rows[0]["rel_path"]
+        click.echo(f"\n📄 {file_path} — {len(rows)} definition(s):\n")
+        for r in rows:
+            exp = "[exp]" if r["is_export"] else ""
+            parent = f" ← {r['parent_symbol']}" if r["parent_symbol"] else ""
+            click.echo(f"  L{r['line_start']:>4}  {r['kind']:<16} {r['name']:<30} {exp}{parent}")
+            if r["signature"]:
+                click.echo(f"         → {r['signature']}")
 
 
 # ── Imports ──
@@ -240,21 +248,20 @@ def file(path: str, project: str | None):
 @click.option("--project", default=None, help="Project name")
 def imports(name: str, project: str | None):
     """Show which files import a symbol."""
-    pname = _get_project_name(project)
-    conn = _connect(pname)
-    rows = queries.find_imports_of_symbol(conn, name)
+    with _project_conn(project) as (_pname, conn):
+        rows = queries.find_imports_of_symbol(conn, name)
 
-    if not rows:
-        click.echo(f"No files import '{name}'")
-        return
+        if not rows:
+            click.echo(f"No files import '{name}'")
+            return
 
-    click.echo(f"\n📥 {len(rows)} file(s) import '{name}':\n")
-    for r in rows:
-        alias = f" as {r['alias_name']}" if r["alias_name"] else ""
-        resolved = f" → {r['resolved_path']}" if r["resolved_path"] else ""
-        line = f"  {r['importer']}:{r['line']}  ← {r['source_path']}"
-        line += f" ({r['import_type']}{alias}){resolved}"
-        click.echo(line)
+        click.echo(f"\n📥 {len(rows)} file(s) import '{name}':\n")
+        for r in rows:
+            alias = f" as {r['alias_name']}" if r["alias_name"] else ""
+            resolved = f" → {r['resolved_path']}" if r["resolved_path"] else ""
+            line = f"  {r['importer']}:{r['line']}  ← {r['source_path']}"
+            line += f" ({r['import_type']}{alias}){resolved}"
+            click.echo(line)
 
 
 # ── Used-by ──
@@ -265,24 +272,23 @@ def imports(name: str, project: str | None):
 @click.option("--project", default=None, help="Project name")
 def used_by(module: str, project: str | None):
     """Show which files import from a module."""
-    pname = _get_project_name(project)
-    conn = _connect(pname)
-    rows = queries.find_imports_from_module(conn, module)
+    with _project_conn(project) as (_pname, conn):
+        rows = queries.find_imports_from_module(conn, module)
 
-    if not rows:
-        click.echo(f"No files import from '{module}'")
-        return
+        if not rows:
+            click.echo(f"No files import from '{module}'")
+            return
 
-    importers: dict[str, list[str]] = {}
-    for r in rows:
-        importers.setdefault(r["importer"], []).append(r["symbol_name"])
+        importers: dict[str, list[str]] = {}
+        for r in rows:
+            importers.setdefault(r["importer"], []).append(r["symbol_name"])
 
-    click.echo(f"\n📥 {len(importers)} file(s) import from '{module}':\n")
-    for importer, syms in sorted(importers.items()):
-        sym_list = ", ".join(s for s in syms if s)
-        click.echo(f"  {importer}")
-        if sym_list:
-            click.echo(f"    imports: {sym_list}")
+        click.echo(f"\n📥 {len(importers)} file(s) import from '{module}':\n")
+        for importer, syms in sorted(importers.items()):
+            sym_list = ", ".join(s for s in syms if s)
+            click.echo(f"  {importer}")
+            if sym_list:
+                click.echo(f"    imports: {sym_list}")
 
 
 # ── List ──
@@ -295,16 +301,15 @@ def used_by(module: str, project: str | None):
 @click.option("--project", default=None, help="Project name")
 def list_cmd(kind: str | None, exported: bool, limit: int, project: str | None):
     """List symbols, optionally filtered."""
-    pname = _get_project_name(project)
-    conn = _connect(pname)
-    rows = queries.list_symbols(conn, kind, exported, limit)
+    with _project_conn(project) as (_pname, conn):
+        rows = queries.list_symbols(conn, kind, exported, limit)
 
-    desc = f"kind={kind}" if kind else "all kinds"
-    desc += ", exported" if exported else ""
-    click.echo(f"\n📋 {len(rows)} symbols ({desc}):\n")
-    for r in rows:
-        exp = "📤" if r["is_export"] else "  "
-        click.echo(f"  {exp} {r['kind']:<16} {r['name']:<30} {r['rel_path']}:{r['line_start']}")
+        desc = f"kind={kind}" if kind else "all kinds"
+        desc += ", exported" if exported else ""
+        click.echo(f"\n📋 {len(rows)} symbols ({desc}):\n")
+        for r in rows:
+            exp = "📤" if r["is_export"] else "  "
+            click.echo(f"  {exp} {r['kind']:<16} {r['name']:<30} {r['rel_path']}:{r['line_start']}")
 
 
 # ── Callers ──
@@ -315,19 +320,18 @@ def list_cmd(kind: str | None, exported: bool, limit: int, project: str | None):
 @click.option("--project", default=None, help="Project name")
 def callers(name: str, project: str | None):
     """Show who calls a symbol."""
-    pname = _get_project_name(project)
-    conn = _connect(pname)
-    rows = queries.find_callers(conn, name)
+    with _project_conn(project) as (_pname, conn):
+        rows = queries.find_callers(conn, name)
 
-    if not rows:
-        click.echo(f"No callers found for '{name}'")
-        return
+        if not rows:
+            click.echo(f"No callers found for '{name}'")
+            return
 
-    click.echo(f"\n📞 {len(rows)} call site(s) → '{name}':\n")
-    for r in rows:
-        caller = f"{r['caller_name']}()" if r["caller_name"] else "(top-level)"
-        loc = f":{r['line']}" if r["line"] else ""
-        click.echo(f"  {r['rel_path']}{loc}  [{caller}]")
+        click.echo(f"\n📞 {len(rows)} call site(s) → '{name}':\n")
+        for r in rows:
+            caller = f"{r['caller_name']}()" if r["caller_name"] else "(top-level)"
+            loc = f":{r['line']}" if r["line"] else ""
+            click.echo(f"  {r['rel_path']}{loc}  [{caller}]")
 
 
 # ── Callees ──
@@ -338,30 +342,29 @@ def callers(name: str, project: str | None):
 @click.option("--project", default=None, help="Project name")
 def callees(name: str, project: str | None):
     """Show what a symbol calls."""
-    pname = _get_project_name(project)
-    conn = _connect(pname)
-    found = queries.get_symbol_by_name(conn, name)
+    with _project_conn(project) as (_pname, conn):
+        found = queries.get_symbol_by_name(conn, name)
 
-    if not found:
-        click.echo(f"No symbol '{name}'")
-        return
+        if not found:
+            click.echo(f"No symbol '{name}'")
+            return
 
-    sym = found[0]
-    if sym["kind"] not in ("function", "method", "arrow_function"):
-        click.echo(f"'{name}' ({sym['kind']}) is not callable — no callee list available")
-        return
+        sym = found[0]
+        if sym["kind"] not in ("function", "method", "arrow_function"):
+            click.echo(f"'{name}' ({sym['kind']}) is not callable — no callee list available")
+            return
 
-    rows = queries.find_callees(conn, sym["id"])
+        rows = queries.find_callees(conn, sym["id"])
 
-    if not rows:
-        click.echo(f"No outbound calls for '{name}'")
-        return
+        if not rows:
+            click.echo(f"No outbound calls for '{name}'")
+            return
 
-    click.echo(f"\n📤 '{name}' calls {len(rows)} unique function(s):\n")
-    for i, r in enumerate(rows):
-        click.echo(f"  {r['callee_name']:<30}", nl=(i + 1) % 4 != 0)
-    if len(rows) % 4 != 0:
-        click.echo()
+        click.echo(f"\n📤 '{name}' calls {len(rows)} unique function(s):\n")
+        for i, r in enumerate(rows):
+            click.echo(f"  {r['callee_name']:<30}", nl=(i + 1) % 4 != 0)
+        if len(rows) % 4 != 0:
+            click.echo()
 
 
 # ── Chain ──
@@ -375,20 +378,19 @@ def chain(name: str, depth: int, project: str | None):
     """Show a call chain from a symbol."""
     from codeatlas.graph.callgraph import find_call_chain
 
-    pname = _get_project_name(project)
-    conn = _connect(pname)
-    steps = find_call_chain(conn, name, depth)
+    with _project_conn(project) as (_pname, conn):
+        steps = find_call_chain(conn, name, depth)
 
-    if not steps:
-        click.echo(f"No call chain found for '{name}'")
-        return
+        if not steps:
+            click.echo(f"No call chain found for '{name}'")
+            return
 
-    click.echo(f"\n🔗 Call chain: {name}()\n")
-    for d, sym, callee_names in steps:
-        indent = "  " * (d + 1)
-        click.echo(f"{indent}{sym}()")
-        for callee in callee_names[:5]:
-            click.echo(f"{indent}  → {callee}()")
+        click.echo(f"\n🔗 Call chain: {name}()\n")
+        for d, sym, callee_names in steps:
+            indent = "  " * (d + 1)
+            click.echo(f"{indent}{sym}()")
+            for callee in callee_names[:5]:
+                click.echo(f"{indent}  → {callee}()")
 
 
 # ── Graph ──
@@ -413,15 +415,13 @@ def chain(name: str, depth: int, project: str | None):
 @click.option("--project", default=None, help="Project name")
 def graph(target: str, graph_type: str, direction: str, depth: int, project: str | None):
     """Generate a Mermaid dependency/call graph."""
-    pname = _get_project_name(project)
-    conn = _connect(pname)
+    with _project_conn(project) as (_pname, conn):
+        if graph_type == "deps":
+            output = deps_to_mermaid(conn, target, direction, depth)
+        else:
+            output = calls_to_mermaid(conn, target, depth)
 
-    if graph_type == "deps":
-        output = deps_to_mermaid(conn, target, direction, depth)
-    else:
-        output = calls_to_mermaid(conn, target, depth)
-
-    click.echo(output)
+        click.echo(output)
 
 
 # ── Deps ──
@@ -441,26 +441,24 @@ def deps(path: str, direction: str, depth: int, project: str | None):
     """Show file dependencies."""
     from codeatlas.graph.dependency import downstream_dependencies, upstream_dependencies
 
-    pname = _get_project_name(project)
-    conn = _connect(pname)
+    with _project_conn(project) as (_pname, conn):
+        if direction == "downstream":
+            steps = downstream_dependencies(conn, path, depth)
+            arrow = "→"
+        else:
+            steps = upstream_dependencies(conn, path, depth)
+            arrow = "←"
 
-    if direction == "downstream":
-        steps = downstream_dependencies(conn, path, depth)
-        arrow = "→"
-    else:
-        steps = upstream_dependencies(conn, path, depth)
-        arrow = "←"
+        if not steps:
+            click.echo(f"No dependencies found for '{path}'")
+            return
 
-    if not steps:
-        click.echo(f"No dependencies found for '{path}'")
-        return
-
-    click.echo(f"\n📦 Dependencies ({direction}) for '{path}':\n")
-    for d, file_path, dep_list in steps:
-        indent = "  " * d
-        click.echo(f"{indent}{file_path}")
-        for dep in dep_list:
-            click.echo(f"{indent}  {arrow} {dep}")
+        click.echo(f"\n📦 Dependencies ({direction}) for '{path}':\n")
+        for d, file_path, dep_list in steps:
+            indent = "  " * d
+            click.echo(f"{indent}{file_path}")
+            for dep in dep_list:
+                click.echo(f"{indent}  {arrow} {dep}")
 
 
 # ── Export ──
@@ -475,20 +473,19 @@ def export_cmd(project: str | None, out: str):
     """Export the whole index as JSON (for external tools or an LLM prompt)."""
     from codeatlas.analysis.report import build_report
 
-    pname = _get_project_name(project)
-    conn = _connect(pname)
-    payload = {
-        "report": build_report(conn, pname),
-        "files": [dict(r) for r in queries.get_files(conn)],
-        "symbols": [dict(r) for r in queries.list_symbols(conn)],
-    }
-    text = json.dumps(payload, indent=2, default=str)
-    if out == "-":
-        click.echo(text)
-    else:
-        with open(out, "w", encoding="utf-8") as f:
-            f.write(text)
-        click.echo(f"Wrote {out} ({len(text):,} bytes)")
+    with _project_conn(project) as (pname, conn):
+        payload = {
+            "report": build_report(conn, pname),
+            "files": [dict(r) for r in queries.get_files(conn)],
+            "symbols": [dict(r) for r in queries.list_symbols(conn)],
+        }
+        text = json.dumps(payload, indent=2, default=str)
+        if out == "-":
+            click.echo(text)
+        else:
+            with open(out, "w", encoding="utf-8") as f:
+                f.write(text)
+            click.echo(f"Wrote {out} ({len(text):,} bytes)")
 
 
 # ── Serve ──

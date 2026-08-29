@@ -49,10 +49,8 @@ def test_exact_and_wildcard_aliases_coexist(tmp_path):
         '"paths":{"pkg":["./src/index.ts"],"pkg/*":["./src/*.ts"]}}}'
     )
     aliases = parse_tsconfig_aliases(str(tmp_path))
-    assert resolve_import_path("pkg", str(tmp_path), aliases)[0] == os.path.join("src", "index.ts")
-    assert resolve_import_path("pkg/middleware", str(tmp_path), aliases)[0] == os.path.join(
-        "src", "middleware.ts"
-    )
+    assert resolve_import_path("pkg", str(tmp_path), aliases)[0] == "src/index.ts"
+    assert resolve_import_path("pkg/middleware", str(tmp_path), aliases)[0] == "src/middleware.ts"
 
 
 def test_longest_alias_prefix_wins(tmp_path):
@@ -64,7 +62,7 @@ def test_longest_alias_prefix_wins(tmp_path):
         '{"compilerOptions":{"paths":{"@/*":["./a/*"],"@/deep/*":["./b/*"]}}}'
     )
     aliases = parse_tsconfig_aliases(str(tmp_path))
-    assert resolve_import_path("@/deep/x", str(tmp_path), aliases)[0] == os.path.join("b", "x.ts")
+    assert resolve_import_path("@/deep/x", str(tmp_path), aliases)[0] == "b/x.ts"
 
 
 def test_jsonc_tsconfig_with_comments_and_trailing_commas(ts_project):
@@ -98,7 +96,7 @@ def test_python_absolute_import(py_project):
     rel, abs_path = resolve_python_import(
         "pkg.sub.helpers", py_project, os.path.join(py_project, "pkg", "core.py")
     )
-    assert rel == os.path.join("pkg", "sub", "helpers.py")
+    assert rel == "pkg/sub/helpers.py"
     assert abs_path is not None
 
 
@@ -106,12 +104,12 @@ def test_python_relative_import(py_project):
     rel, abs_path = resolve_python_import(
         "core", py_project, os.path.join(py_project, "pkg", "sub", "helpers.py"), level=2
     )
-    assert rel == os.path.join("pkg", "core.py")
+    assert rel == "pkg/core.py"
 
 
 def test_python_package_import_resolves_to_init(py_project):
     rel, _ = resolve_python_import("pkg.sub", py_project)
-    assert rel == os.path.join("pkg", "sub", "__init__.py")
+    assert rel == "pkg/sub/__init__.py"
 
 
 def test_python_stdlib_is_external(py_project):

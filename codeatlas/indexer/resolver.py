@@ -29,6 +29,11 @@ EXTENSION_ORDER = (
 PY_EXTENSION_ORDER = (".py", ".pyi", "/__init__.py", "/__init__.pyi")
 
 
+def _to_posix(path: str) -> str:
+    """Normalize a relative path to forward slashes."""
+    return path.replace("\\", "/")
+
+
 def _strip_jsonc(text: str) -> str:
     """Strip // and /* */ comments and trailing commas from a JSONC document.
 
@@ -119,9 +124,9 @@ def parse_tsconfig_aliases(project_root: str) -> dict[str, str]:
                 # normpath eats the trailing separator that "./src/*" needs.
                 if head.endswith(("/", os.sep)) and not joined.endswith(os.sep):
                     joined += "/"
-                aliases[alias_pattern] = joined + star + tail
+                aliases[alias_pattern] = _to_posix(joined + star + tail)
             else:
-                aliases[alias_pattern] = joined
+                aliases[alias_pattern] = _to_posix(joined)
         if aliases:
             return aliases
     return {}
@@ -209,14 +214,15 @@ def resolve_import_path(
             candidate_rel = os.path.normpath(os.path.join(target, suffix))
         else:
             candidate_rel = os.path.normpath(target)
+        candidate_rel = _to_posix(candidate_rel)
         abs_base = os.path.join(project_root, candidate_rel)
     elif import_source.startswith("."):
         # 2. Relative to the importing file's directory.
         abs_base = os.path.normpath(os.path.join(base_dir, import_source))
-        candidate_rel = os.path.relpath(abs_base, project_root)
+        candidate_rel = _to_posix(os.path.relpath(abs_base, project_root))
     elif import_source.startswith("/"):
         # 3. Root-absolute specifier (some bundlers) — treat as project-root relative.
-        candidate_rel = os.path.normpath(import_source.lstrip("/"))
+        candidate_rel = _to_posix(os.path.normpath(import_source.lstrip("/")))
         abs_base = os.path.join(project_root, candidate_rel)
     else:
         # 4. Bare specifier → external package ("react", "@scope/pkg").
@@ -224,7 +230,7 @@ def resolve_import_path(
 
     found = _try_extensions(abs_base, EXTENSION_ORDER)
     if found:
-        return os.path.relpath(found, project_root), os.path.abspath(found)
+        return _to_posix(os.path.relpath(found, project_root)), os.path.abspath(found)
     return candidate_rel, None
 
 
@@ -258,8 +264,8 @@ def resolve_python_import(
         abs_base = os.path.join(base, *parts) if parts else os.path.join(base, "__init__")
         found = _try_extensions(abs_base, PY_EXTENSION_ORDER)
         if found:
-            return os.path.relpath(found, project_root), os.path.abspath(found)
-        return os.path.relpath(abs_base, project_root), None
+            return _to_posix(os.path.relpath(found, project_root)), os.path.abspath(found)
+        return _to_posix(os.path.relpath(abs_base, project_root)), None
 
     if not parts:
         return None, None
@@ -274,7 +280,7 @@ def resolve_python_import(
     for root in search_roots:
         found = _try_extensions(os.path.join(root, *parts), PY_EXTENSION_ORDER)
         if found:
-            return os.path.relpath(found, project_root), os.path.abspath(found)
+            return _to_posix(os.path.relpath(found, project_root)), os.path.abspath(found)
 
     # Not in the project — stdlib or an installed package.
     return None, None

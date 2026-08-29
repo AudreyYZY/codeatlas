@@ -21,7 +21,7 @@ def test_data_home_follows_the_env_var(isolated_data_home):
 
 def test_data_home_default(monkeypatch):
     monkeypatch.delenv("CODEATLAS_HOME", raising=False)
-    assert config.get_data_home() == os.path.expanduser("~/.codeatlas")
+    assert config.get_data_home() == os.path.abspath(os.path.expanduser("~/.codeatlas"))
 
 
 def test_get_project_dir(isolated_data_home):

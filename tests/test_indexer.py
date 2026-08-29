@@ -71,8 +71,8 @@ def test_python_project_indexes(py_project):
     assert stats["errors"] == 0
     conn = _open("pyproj")
     edges = {(e["source_rel"], e["target_rel"]) for e in queries.get_all_dependencies(conn)}
-    assert (os.path.join("pkg", "core.py"), os.path.join("pkg", "sub", "helpers.py")) in edges
-    assert (os.path.join("pkg", "sub", "helpers.py"), os.path.join("pkg", "core.py")) in edges
+    assert ("pkg/core.py", "pkg/sub/helpers.py") in edges
+    assert ("pkg/sub/helpers.py", "pkg/core.py") in edges
 
     names = {r["name"] for r in queries.list_symbols(conn)}
     assert {"Engine", "run", "start", "assist", "CONST"} <= names
