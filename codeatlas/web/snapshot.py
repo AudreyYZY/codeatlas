@@ -62,11 +62,14 @@ def snapshot_html(conn: sqlite3.Connection, name: str) -> str:
     }
     # Escape script delimiters even when a symbol/import contains HTML.
     encoded = json.dumps(payload, ensure_ascii=True).replace("<", "\\u003c")
-    transport = Path(__file__).with_name("static").joinpath("snapshot.js").read_text()
-    template = Path(__file__).with_name("static").joinpath("index.html").read_text()
-    css = Path(__file__).with_name("static").joinpath("app.css").read_text()
-    app = Path(__file__).with_name("static").joinpath("app.js").read_text()
-    reader = Path(__file__).with_name("static").joinpath("reader.js").read_text()
+    static = Path(__file__).with_name("static")
+    # Web assets are UTF-8 regardless of the host's locale (Windows otherwise
+    # defaults to a legacy code page and cannot decode typographic symbols).
+    transport = static.joinpath("snapshot.js").read_text(encoding="utf-8")
+    template = static.joinpath("index.html").read_text(encoding="utf-8")
+    css = static.joinpath("app.css").read_text(encoding="utf-8")
+    app = static.joinpath("app.js").read_text(encoding="utf-8")
+    reader = static.joinpath("reader.js").read_text(encoding="utf-8")
     template = template.replace(
         '<link rel="stylesheet" href="/static/app.css">', "<style>" + css + "</style>"
     )
