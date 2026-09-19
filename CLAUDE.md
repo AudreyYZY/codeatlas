@@ -85,10 +85,11 @@ codeatlas/
     └── static/index.html     # The entire frontend: one file, no CDN, no build step
 ```
 
-### Database Schema (6 tables)
+### Database Schema (7 tables)
 
 | Table | Purpose |
 |-------|---------|
+| `file_analyses` | Index-time JSON implementation facts, foreign-keyed to files |
 | `meta` | `schema_version`, `project_root`, `project_name`, `indexed_at` |
 | `files` | Source files with path, language, line/byte counts, mtime, `content_hash` |
 | `symbols` | Declarations with `parent_symbol`/`enclosing_type` for nesting |
@@ -139,7 +140,7 @@ deep dependency chain cannot exhaust the recursion limit.
 
 `create_app()` is a factory (imports FastAPI lazily so the CLI works without the web
 extras). Index runs happen on a background thread with a polled job id. The frontend is a
-single HTML file with a hand-written canvas force-directed layout — no CDN, because the
+bundled HTML/CSS/JavaScript with a canvas dependency map and evidence-backed SVG reader graphs — no CDN, because the
 project promises to work fully offline.
 
 ## Testing Patterns

@@ -14,7 +14,7 @@ from codeatlas.graph.mermaid import calls_to_mermaid, cycles_to_mermaid, deps_to
 from codeatlas.indexer.indexer import index_project
 from codeatlas.storage import queries
 
-__version__ = "0.3.0"
+__version__ = "0.5.0"
 
 
 def _get_project_name(project_arg: str | None = None) -> str:
@@ -488,6 +488,24 @@ def export_cmd(project: str | None, out: str):
             click.echo(f"Wrote {out} ({len(text):,} bytes)")
 
 
+@cli.command(name="snapshot")
+@click.option("--project", default=None, help="Indexed project name")
+@click.option("--out", "-o", default="codeatlas-snapshot.html", type=click.Path(dir_okay=False))
+def snapshot_cmd(project: str | None, out: str):
+    """Export a standalone browser explorer without source bodies or absolute paths.
+
+    Includes file names, declaration signatures and dependency relationships.
+    Review the exported file before sharing private project metadata.
+    """
+    from pathlib import Path
+
+    from codeatlas.web.snapshot import snapshot_html
+
+    with _project_conn(project) as (pname, conn):
+        Path(out).write_text(snapshot_html(conn, pname), encoding="utf-8")
+    click.echo(f"Open {out} in any browser. No server or installation required.")
+
+
 # ── Serve ──
 
 
@@ -517,6 +535,53 @@ def serve(host: str, port: int, open_browser: bool):
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
 
     uvicorn.run(create_app(), host=host, port=port, log_level="warning")
+
+
+@cli.command(name="app")
+@click.argument("path", required=False, type=click.Path(exists=True, file_okay=False))
+@click.option("--no-open", is_flag=True, help="Do not open the browser")
+def app_cmd(path: str | None, no_open: bool):
+    """Open the explorer on a free local port; optionally index PATH first."""
+    import socket
+    import threading
+    import time
+    import urllib.request
+    import webbrowser
+    from pathlib import Path
+
+    try:
+        import uvicorn
+    except ImportError as e:
+        raise click.ClickException(
+            'Install the browser extras: pip install "codeatlas[web]"'
+        ) from e
+    from codeatlas.config import list_projects
+    from codeatlas.indexer.indexer import index_project
+    from codeatlas.web.server import create_app
+
+    if path:
+        index_project(path, incremental=True)
+    elif not list_projects():
+        example = Path(__file__).with_name("web") / "example"
+        index_project(str(example), "checkout-example", quiet=True)
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        url = f"http://127.0.0.1:{listener.getsockname()[1]}"
+        click.echo(f"CodeAtlas → {url} (Ctrl+C to stop)")
+        if not no_open:
+
+            def open_when_ready():
+                for _ in range(100):
+                    try:
+                        with urllib.request.urlopen(url, timeout=0.5):
+                            webbrowser.open(url)
+                        return
+                    except OSError:
+                        time.sleep(0.1)
+
+            threading.Thread(target=open_when_ready, daemon=True).start()
+        server = uvicorn.Server(uvicorn.Config(create_app(), log_level="warning"))
+        server.run(sockets=[listener])
 
 
 def main():

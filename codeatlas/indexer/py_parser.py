@@ -7,16 +7,20 @@ shape the TypeScript parser produces, so the indexer and every query works
 across both languages unchanged.
 """
 
-from functools import lru_cache
+from threading import local
 
-from tree_sitter_language_pack import get_parser
+import tree_sitter_python
+from tree_sitter import Language, Parser
 
 from codeatlas.config import detect_language
 
+_thread_parsers = local()
 
-@lru_cache(maxsize=1)
+
 def _parser():
-    return get_parser("python")
+    if not hasattr(_thread_parsers, "parser"):
+        _thread_parsers.parser = Parser(Language(tree_sitter_python.language()))
+    return _thread_parsers.parser
 
 
 def _text(node, src: bytes) -> str:

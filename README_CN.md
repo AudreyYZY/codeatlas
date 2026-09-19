@@ -1,3 +1,29 @@
+## 0.5：架构、数据流和实现指南
+
+默认进入 **Architecture** 总览。按目录深度聚合模块，可切换导入、调用、生产者到消费者关系；点击模块进入文件，点击箭头查看证据，导出 SVG / Mermaid。
+
+**Data flow** 分开显示参数输入、返回结果和 handoff。直接调用的结果，经变量、简单别名或嵌套表达式传给后续函数时，会保存编排文件、函数、行号与参数位置。分支 / 循环内部独立分析，不穿越汇合点或推断运行时数据；默认隐藏没有对应关系的文件。
+
+**File guide** 显示模块文档、内部协作、函数参数、返回表达式、条件 / 循环 / 异常 / 异步步骤和调用位置。可过滤函数、查看带行号的源码证据并导出 Markdown。解释依据 AST 和作者注释；无注释的业务语义不自动保证。
+
+旧索引需重新索引一次；增量模式会自动补齐缺少实现事实的文件。当前源码与索引哈希不同会提示重新索引。离线快照保留这些新功能，也包含文档注释及实现表达式等元数据，分享前需检查。
+
+具体文件职责和原理见 [架构与实现讲解](docs/ARCHITECTURE_CN.md)，实际验证结果见 [VALIDATION.md](VALIDATION.md)。
+
+## 0.4 新增使用入口
+
+Mac 用户首次运行 `./setup.sh`，之后双击 **Open CodeAtlas.command**，即可打开本地网页。也可以运行 `codeatlas app /你的项目路径`。保留 CLI 供脚本和自动化使用。
+
+新增目录与声明结构树、按具体声明区分的调用图、SVG 下载、明确的图节点截断数量和离线 HTML 快照。同名函数或不同类的同名方法不会在新调用图中合并；成员、动态或无法确定目标的调用可以单独显示。解析器语法随安装包提供，不需要运行时联网下载。
+
+运行 `codeatlas snapshot --project 项目名 -o 项目.html`，即可生成别人无需安装 Python 也能打开的交互式结构演示。快照不包含源码正文和本机绝对路径，但包含文件名、声明签名和依赖信息，分享前应检查项目元数据。快照只读，分析新项目需要本地应用。
+
+目录树仅包含已经索引的 TypeScript、JavaScript、Python 源文件。新调用图是静态分析，无法完整判断运行时动态调用。旧 CLI `chain` 仍按名称聚合；同名声明分析请用新网页版。
+
+完整验证说明见 [VALIDATION.md](VALIDATION.md)。
+
+---
+
 <div align="center">
 
 # CodeAtlas
@@ -356,7 +382,7 @@ CodeAtlas 专注于**本地优先的结构化索引**。它面向那些想要精
 |------|------|
 | 编程语言 | Python 3.11+ |
 | CLI 框架 | Click |
-| AST 解析器 | tree-sitter（`tree-sitter-language-pack`，TSX + Python 语法） |
+| AST 解析器 | tree-sitter（`tree-sitter-typescript + tree-sitter-python`，TSX + Python 语法） |
 | 存储 | SQLite3（WAL 模式，带版本的 schema） |
 | 图算法 | 可配置深度的 BFS；循环检测用 Tarjan 强连通分量 |
 | 图表输出 | Mermaid TD 语法 |

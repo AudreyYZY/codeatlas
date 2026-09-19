@@ -46,6 +46,13 @@ def parse_file(file_path: str, aliases: dict[str, str] | None = None) -> dict:
         imp.setdefault("level", 0)
         imp.setdefault("is_type_import", False)
         imp.setdefault("alias_name", None)
+    # Imported here to avoid a dependency cycle with the grammar providers.
+    from codeatlas.analysis.implementation import extract_implementation
+
+    with open(file_path, "rb") as source:
+        result["implementation"] = extract_implementation(
+            source.read(), result["language"], result["symbols"]
+        )
     return result
 
 

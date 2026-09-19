@@ -108,3 +108,52 @@ def test_reindex_removes_deleted_files(py_project):
     assert not any(p.endswith("helpers.py") for p in paths)
     assert stats["files"] == len(paths)
     conn.close()
+
+
+def test_package_submodule_import_points_to_source(tmp_path):
+    package = tmp_path / "pkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "helpers.py").write_text("def help_me():\n    return 1\n")
+    (tmp_path / "main.py").write_text("from pkg import helpers\n")
+    index_project(str(tmp_path), "submodule", quiet=True)
+    conn = _open("submodule")
+    try:
+        edges = queries.get_all_dependencies(conn)
+        assert any(e["target_rel"] == "pkg/helpers.py" for e in edges)
+    finally:
+        conn.close()
+
+
+def test_all_parser_failures_do_not_report_success(tmp_path, monkeypatch):
+    import pytest
+
+    (tmp_path / "main.py").write_text("def main(): pass")
+
+    def fail(_path):
+        raise RuntimeError("parser unavailable")
+
+    monkeypatch.setattr("codeatlas.indexer.indexer.parse_file", fail)
+    with pytest.raises(RuntimeError, match="All 1 source files failed"):
+        index_project(str(tmp_path), "failed", quiet=True)
+
+
+def test_parser_failure_preserves_previous_index(tmp_path, monkeypatch):
+    import pytest
+
+    source = tmp_path / "main.py"
+    source.write_text("def original(): pass")
+    index_project(str(tmp_path), "preserved", quiet=True)
+    source.write_text("def changed(): pass")
+
+    def fail(_path):
+        raise RuntimeError("parser unavailable")
+
+    monkeypatch.setattr("codeatlas.indexer.indexer.parse_file", fail)
+    with pytest.raises(RuntimeError):
+        index_project(str(tmp_path), "preserved", quiet=True)
+    conn = _open("preserved")
+    try:
+        assert conn.execute("SELECT name FROM symbols").fetchone()[0] == "original"
+    finally:
+        conn.close()

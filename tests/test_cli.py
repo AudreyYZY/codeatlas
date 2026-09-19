@@ -9,7 +9,7 @@ import json
 import pytest
 from click.testing import CliRunner
 
-from codeatlas.cli import cli
+from codeatlas.cli import __version__, cli
 
 
 @pytest.fixture
@@ -31,7 +31,7 @@ def _run(runner, *args):
 
 
 def test_version(runner):
-    assert "0.3" in _run(runner, "--version")
+    assert __version__ in _run(runner, "--version")
 
 
 def test_index_reports_counts(runner, ts_project):
