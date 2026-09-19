@@ -5,9 +5,10 @@ Extracts: function, class, interface, type alias, enum, const/let/var
 declarations, plus imports, call expressions, and parent_symbol relationships.
 """
 
-from functools import lru_cache
+from threading import local
 
-from tree_sitter_language_pack import get_parser
+import tree_sitter_typescript
+from tree_sitter import Language, Parser
 
 from codeatlas.config import detect_language
 
@@ -46,10 +47,14 @@ CALLABLE_KINDS: set[str] = {
 EXPORT_CONTEXT_KINDS: set[str] = {"export_statement", "export_clause", "export_specifier"}
 
 
-@lru_cache(maxsize=1)
+_thread_parsers = local()
+
+
 def _parse():
     """Lazy-init the TSX parser (cached — construction is not free)."""
-    return get_parser("tsx")
+    if not hasattr(_thread_parsers, "parser"):
+        _thread_parsers.parser = Parser(Language(tree_sitter_typescript.language_tsx()))
+    return _thread_parsers.parser
 
 
 def _node_text(node, source_bytes: bytes) -> str:
@@ -171,7 +176,7 @@ def parse_ts_file(file_path: str, aliases: dict[str, str] | None = None) -> dict
             if name_node:
                 scope_name = _node_text(name_node, source_bytes)
                 scope_type = "class"
-        elif node.type in ("function_declaration",):
+        elif node.type in ("function_declaration", "generator_function_declaration"):
             name_node = node.child_by_field_name("name")
             if name_node:
                 scope_name = _node_text(name_node, source_bytes)
@@ -205,8 +210,13 @@ def parse_ts_file(file_path: str, aliases: dict[str, str] | None = None) -> dict
                     name = _node_text(name_node, source_bytes)
             elif node.type == "arrow_function":
                 # Handled under variable_declarator above
+                owner = node.parent.child_by_field_name("name") if node.parent else None
+                if owner:
+                    scope_stack.append((_node_text(owner, source_bytes), "function"))
                 for child in node.children:
                     walk(child)
+                if owner:
+                    scope_stack.pop()
                 if pushed:
                     scope_stack.pop()
                 return
@@ -214,6 +224,10 @@ def parse_ts_file(file_path: str, aliases: dict[str, str] | None = None) -> dict
             if name and kind:
                 # Export status
                 is_export = _has_ancestor_kind(node, EXPORT_CONTEXT_KINDS)
+                enclosing_scopes = scope_stack[:-1] if pushed else scope_stack
+                if any(t == "function" for _, t in enclosing_scopes):
+                    # A local variable inside an exported function is not an export.
+                    is_export = False
                 if not is_export and node.parent:
                     is_export = _node_has_child_type(node.parent, "export")
 
@@ -230,8 +244,9 @@ def parse_ts_file(file_path: str, aliases: dict[str, str] | None = None) -> dict
                 is_async = False
                 if node.type in CALLABLE_KINDS:
                     is_async = _node_has_child_type(node, "async")
-                elif kind == "arrow_function" and parent:
-                    is_async = _node_has_child_type(parent, "async")
+                elif kind == "arrow_function":
+                    value = node.child_by_field_name("value")
+                    is_async = bool(value and _node_has_child_type(value, "async"))
 
                 # Signature
                 signature = None
@@ -261,8 +276,9 @@ def parse_ts_file(file_path: str, aliases: dict[str, str] | None = None) -> dict
                     signature = f"interface {name}{heritage}"
 
                 # Parent symbol
-                parent_symbol = scope_stack[-1][0] if scope_stack else None
-                enclosing_type = scope_stack[-1][1] if scope_stack else None
+                enclosing = scope_stack[:-1] if pushed else scope_stack
+                parent_symbol = enclosing[-1][0] if enclosing else None
+                enclosing_type = enclosing[-1][1] if enclosing else None
 
                 symbols.append(
                     {
@@ -401,6 +417,10 @@ def parse_ts_file(file_path: str, aliases: dict[str, str] | None = None) -> dict
                                     )
                     elif child.type == "namespace_import":
                         ns = child.child_by_field_name("name")
+                        if ns is None:
+                            ns = next(
+                                (c for c in child.named_children if c.type == "identifier"), None
+                            )
                         if ns:
                             imports.append(
                                 {
@@ -413,9 +433,15 @@ def parse_ts_file(file_path: str, aliases: dict[str, str] | None = None) -> dict
                                 }
                             )
 
+        # Method locals belong to the method, rather than its enclosing class.
+        method_scope = node.type == "method_definition" and name is not None
+        if method_scope:
+            scope_stack.append((name, "function"))
         # Recurse
         for child in node.children:
             walk(child)
+        if method_scope:
+            scope_stack.pop()
 
         # Pop scope after processing children
         if pushed:

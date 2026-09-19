@@ -6,9 +6,11 @@ from codeatlas.config import get_db_path
 
 # Bumped whenever the DDL below changes in a way older databases cannot
 # satisfy. On mismatch the index is dropped and rebuilt from scratch.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SQL_STATEMENTS = [
+    # Additive table: old v4 indexes remain readable; their next incremental
+    # index parses files without facts rather than destructively migrating.
     # ── Meta (schema version, project root, last index run) ──
     """
     CREATE TABLE IF NOT EXISTS meta (
@@ -88,6 +90,12 @@ SQL_STATEMENTS = [
         resolved BOOLEAN DEFAULT 0
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS file_analyses (
+        file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+        payload TEXT NOT NULL
+    )
+    """,
     # ── Indexes ──
     "CREATE INDEX IF NOT EXISTS idx_files_rel ON files(rel_path)",
     "CREATE INDEX IF NOT EXISTS idx_files_lang ON files(language)",
@@ -108,7 +116,7 @@ SQL_STATEMENTS = [
     "ON dependency_edges(source_file_id, target_file_id)",
 ]
 
-TABLES = ("dependency_edges", "call_edges", "imports", "symbols", "files", "meta")
+TABLES = ("file_analyses", "dependency_edges", "call_edges", "imports", "symbols", "files", "meta")
 
 
 def _apply_ddl(conn: sqlite3.Connection) -> None:

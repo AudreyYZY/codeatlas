@@ -1,6 +1,7 @@
 """Indexer orchestrator: scan → parse → resolve → insert."""
 
 import hashlib
+import json
 import os
 import sqlite3
 import time
@@ -108,7 +109,27 @@ def _insert_call_edges(
     """Insert call edges with caller_symbol_id resolved where possible."""
     for call in call_edges:
         caller_name = call.get("caller_symbol_name")
-        caller_sym_id = sym_id_map.get(caller_name) if caller_name else None
+        # A method name can occur in several classes within one file. Match
+        # the recorded call site to its enclosing declaration, not the first name.
+        caller_sym_id = None
+        if caller_name:
+            candidates = conn.execute(
+                "SELECT id, line_start, line_end FROM symbols WHERE file_id=? AND name=? "
+                "AND kind IN ('function', 'method', 'arrow_function') "
+                "ORDER BY line_start DESC",
+                (file_id, caller_name),
+            ).fetchall()
+            line = call.get("line")
+            enclosing = [
+                s
+                for s in candidates
+                if line is not None
+                and s["line_start"] <= line <= (s["line_end"] or s["line_start"])
+            ]
+            if enclosing:
+                caller_sym_id = enclosing[0]["id"]
+            elif line is None and len(candidates) == 1:
+                caller_sym_id = candidates[0]["id"]
         conn.execute(
             """INSERT INTO call_edges
                (caller_file_id, caller_symbol_id, callee_name, line, is_member)
@@ -127,12 +148,21 @@ def _resolve_one_import(
     imp: dict, language: str, from_file: str, project_root: str, aliases: dict[str, str]
 ) -> tuple[str | None, str | None]:
     if language == "python":
-        return resolve_python_import(
-            imp.get("module", imp["source_path"].lstrip(".")),
-            project_root,
-            from_file=from_file,
-            level=imp.get("level", 0),
+        module = imp.get("module", imp["source_path"].lstrip("."))
+        resolved = resolve_python_import(
+            module, project_root, from_file=from_file, level=imp.get("level", 0)
         )
+        if resolved[1] and resolved[1].endswith("__init__.py") and imp.get("symbol_name"):
+            submodule = resolve_python_import(
+                module + "." + imp["symbol_name"],
+                project_root,
+                from_file=from_file,
+                level=imp.get("level", 0),
+            )
+            if submodule[1]:
+                return submodule
+        return resolved
+
     return resolve_import_path(imp["source_path"], project_root, aliases, from_file=from_file)
 
 
@@ -266,6 +296,7 @@ def index_project(
 
     # ── Decide which files need re-parsing ──
     previous: dict[str, tuple[int, str]] = {}
+    analyzed = {r[0] for r in conn.execute("SELECT file_id FROM file_analyses")}
     if incremental:
         for row in conn.execute("SELECT id, path, content_hash FROM files").fetchall():
             previous[row["path"]] = (row["id"], row["content_hash"])
@@ -281,16 +312,8 @@ def index_project(
     if incremental:
         for path in files:
             prior = previous.get(path)
-            if prior and prior[1] and prior[1] == hashes[path]:
+            if prior and prior[0] in analyzed and prior[1] and prior[1] == hashes[path]:
                 reused.add(path)
-        # Drop files that disappeared, and every changed file's rows.
-        with conn:
-            for path, (file_id, _hash) in previous.items():
-                if path not in reused:
-                    _delete_file_rows(conn, file_id)
-    else:
-        with conn:
-            _clear_project_data(conn)
 
     to_parse = [p for p in files if p not in reused]
     emit("parsing", total=len(to_parse), reused=len(reused))
@@ -318,12 +341,33 @@ def index_project(
             if verbose:
                 say(f"   ⚠️  Error parsing {rel_path}: {e}")
 
+    if to_parse and not all_results and not reused:
+        conn.close()
+        raise RuntimeError(
+            f"All {n_errors} source files failed to parse. First error: {errors[0]['error']}"
+        )
+
+    # Keep the previous index until parsing has succeeded. An unavailable
+    # parser must not erase the last usable index.
+    if incremental:
+        with conn:
+            for path, (file_id, _hash) in previous.items():
+                if path not in reused:
+                    _delete_file_rows(conn, file_id)
+    else:
+        with conn:
+            _clear_project_data(conn)
+
     # ── Pass 1: files, symbols, call edges ──
     n_symbols = 0
     n_calls = 0
     with conn:
         for result in all_results:
             file_id = _insert_file(conn, result)
+            conn.execute(
+                "INSERT INTO file_analyses (file_id, payload) VALUES (?, ?)",
+                (file_id, json.dumps(result["implementation"], ensure_ascii=True)),
+            )
             sym_id_map = _insert_symbols(conn, file_id, result["symbols"])
             _insert_call_edges(conn, file_id, result["call_edges"], sym_id_map)
             n_symbols += len(result["symbols"])
@@ -374,6 +418,7 @@ def index_project(
     with conn:
         set_meta(conn, "project_root", project_root)
         set_meta(conn, "project_name", project_name)
+        set_meta(conn, "parse_errors", json.dumps(errors[:50]))
         set_meta(conn, "indexed_at", time.strftime("%Y-%m-%dT%H:%M:%S"))
 
     elapsed = time.time() - start

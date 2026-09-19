@@ -6,6 +6,7 @@ a plain dict so the CLI can print it, the web UI can render it, and an agent
 can paste it into a prompt.
 """
 
+import json
 import sqlite3
 
 from codeatlas.graph.cycles import find_cycles, shortest_cycle_path
@@ -67,6 +68,8 @@ def describe_module(name: str) -> str | None:
 def build_report(conn: sqlite3.Connection, project_name: str = "") -> dict:
     """Assemble the full structured report for an indexed project."""
     stats = queries.get_stats(conn)
+    parse_errors = json.loads(get_meta(conn, "parse_errors") or "[]")
+    stats["parse_errors"] = len(parse_errors)
     languages = _row_dicts(queries.get_language_counts(conn))
     kinds = _row_dicts(queries.get_kind_counts(conn))
     modules = queries.get_module_breakdown(conn)
@@ -180,9 +183,9 @@ def build_narrative(report: dict) -> list[dict]:
             {
                 "title": "Where to start reading",
                 "body": (
-                    f"No other indexed file imports {names}. Those are the project's "
-                    "entry points — CLI mains, route files, or (occasionally) dead code. "
-                    "Read them first: everything else hangs off them."
+                    f"No other indexed file imports {names}. These are entry-point "
+                    "candidates: they can also be tests, scripts or unused modules. "
+                    "Import structure alone cannot establish the runtime entry point."
                 ),
             }
         )
@@ -229,8 +232,8 @@ def build_narrative(report: dict) -> list[dict]:
             {
                 "title": "External surface",
                 "body": (
-                    f"Most-used third-party imports: {names}. These are the libraries "
-                    "whose idioms show up throughout the codebase."
+                    f"Most-used imports outside the indexed project: {names}. "
+                    "These include standard-library modules and third-party packages."
                 ),
             }
         )
@@ -254,6 +257,18 @@ def build_health(report: dict) -> list[dict]:
     """A few blunt signals worth surfacing at a glance."""
     stats = report["stats"]
     signals: list[dict] = []
+    if stats.get("parse_errors"):
+        signals.append(
+            {
+                "label": "Parsing failures",
+                "value": str(stats["parse_errors"]),
+                "status": "bad",
+                "detail": (
+                    "Some source files are missing from this index. "
+                    "Re-index with --verbose for details."
+                ),
+            }
+        )
 
     total_deps = stats["deps"] + stats["unresolved_deps"]
     if total_deps:

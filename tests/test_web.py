@@ -97,3 +97,36 @@ def test_single_root_is_stripped(tmp_path):
     inner.mkdir()
     (inner / "a.ts").write_text("export const a = 1;")
     assert _strip_single_root(str(tmp_path)) == str(inner)
+
+
+def test_structure_and_callgraph_endpoints(client):
+    structure = client.get("/api/projects/webproj/structure").json()
+    assert structure["files"] == 4
+    graph = client.get("/api/projects/webproj/callgraph").json()
+    assert any(e["resolution"] == "import" for e in graph["edges"])
+    assert graph["shown_nodes"] == len(graph["nodes"])
+
+
+def test_graph_limits_and_unknown_focus(client):
+    root = "/api/projects/webproj/"
+    assert client.get(root + "graph", params={"limit": 0}).status_code == 422
+    assert client.get(root + "callgraph", params={"depth": 99}).status_code == 422
+    assert client.get(root + "graph", params={"direction": "invalid"}).status_code == 422
+    assert client.get(root + "graph", params={"focus": "missing.py"}).status_code == 404
+    assert client.get(root + "callgraph", params={"focus": -1}).status_code == 404
+    full = client.get(root + "graph", params={"limit": 4}).json()
+    assert not full["truncated"] and full["total_nodes"] == 4
+    focused = client.get(root + "graph", params={"focus": "src/index.ts", "limit": 1}).json()
+    assert focused["nodes"][0]["is_focus"] and focused["truncated"]
+
+
+def test_job_store_prevents_overlapping_indexing():
+    from codeatlas.web.server import JobStore
+
+    jobs = JobStore()
+    first = jobs.create("same")
+    with pytest.raises(ValueError, match="already indexing"):
+        jobs.create("same")
+    jobs.update(first, state="done")
+    assert jobs.create("same") != first
+    assert jobs.create("other")

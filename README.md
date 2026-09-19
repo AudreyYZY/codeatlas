@@ -14,7 +14,11 @@
 
 *A local-first code knowledge base that turns a TypeScript, JavaScript or Python project into an indexable, queryable SQLite database — so you can understand architecture, trace call chains, spot import cycles and generate diagrams without reading every file.*
 
-**New in 0.3:** a built-in web UI (`codeatlas serve`), Python support, incremental indexing and cycle detection.
+**New in 0.5:** evidence-backed directory architecture, file argument/return/handoff graphs and source-grounded implementation guides. Click through modules → files → callsite evidence; export SVG, Mermaid or Markdown. See [the implementation guide](docs/ARCHITECTURE_CN.md).
+
+**Introduced in 0.4:** directory/declaration outlines, identity-preserving call graphs, portable HTML snapshots and a one-click local app. Offline grammars ship with the install.
+
+**Introduced in 0.3:** a built-in web UI (`codeatlas serve`), Python support, incremental indexing and cycle detection.
 
 Recommended for use with **Claude Code**, **Codex**, or any AI agent that needs structured context before prompting.
 
@@ -213,6 +217,33 @@ Here's how a developer might use CodeAtlas when joining a new project:
 
 ---
 
+## Open the browser explorer
+
+On macOS, run `./setup.sh` once and then double-click **Open CodeAtlas.command**. The app uses an available loopback port, opens a browser when ready and includes a small checkout example for the first launch. Index your own folder or upload a source ZIP from the sidebar. Close the Terminal window or press Ctrl+C to stop the server.
+
+From an installed package:
+
+```sh
+codeatlas app                  # browser UI on a free local port
+codeatlas app /path/to/repo    # index the repo and open the UI
+```
+
+The browser offers a walkthrough, dependency map, searchable source directory tree with declaration/class outlines, function call graph, file/source inspection, symbol search and cycle review. Callers sit to the left of the selected function and callees to the right. Unresolved calls can be shown separately. Download a call graph as SVG for documentation.
+
+File/declaration identities are preserved: same-name methods in different classes and same-name functions in different files are separate nodes. Direct local and explicit import names are linked conservatively; dynamic/member, external and ambiguous calls are visible as unresolved candidates. Static analysis cannot determine every runtime target. Top-level call sites remain in the index but are not represented as function nodes. Legacy CLI name-based `chain` queries still aggregate by name; use the browser call graph for declaration-specific exploration.
+
+Only supported TS/JS/Python source files are indexed. The directory tree is an outline of that index, not every asset/configuration file in the repository. Graphs explicitly display shown/total counts when a view is capped; focusing on a declaration or file reduces clutter.
+
+### Share a directly accessible snapshot
+
+```sh
+codeatlas snapshot --project my-app -o my-app.html
+```
+
+Open the result directly in a browser, email it or host it as a static file. It has no server, CDN or Python dependency. Snapshots exclude source bodies and indexed absolute local paths, but contain file names, declaration signatures, documentation, implementation expressions, imports and dependencies; review private project metadata before sharing. They are read-only: local indexing and ZIP import require the running app.
+
+[`codeatlas-demo.html`](codeatlas-demo.html) is a generated example exploring CodeAtlas itself. See [VALIDATION.md](VALIDATION.md) for tested behavior.
+
 ## Quick Start
 
 ### 1. Install
@@ -280,6 +311,8 @@ All commands share a `--project <name>` flag to target a specific indexed projec
 | Command | Description |
 |---------|-------------|
 | `index <path> [--name NAME] [--verbose] [--incremental]` | Index a TS/JS/Python project into SQLite |
+| `app [PATH] [--no-open]` | Open the browser on a free loopback port; optionally index PATH |
+| `snapshot [-o FILE]` | Export a portable read-only HTML explorer |
 | `serve [--host H] [--port P] [--no-open]` | Start the web UI |
 | `explain [--json]` | Print a structured architecture report (modules, entry points, hotspots, cycles) |
 | `stats` | Show index statistics (files, lines, symbols, imports, calls, deps) |
@@ -347,7 +380,7 @@ Yes — running `codeatlas index` again overwrites the previous index. Use
 ### Does the web UI send my code anywhere?
 
 No. `codeatlas serve` runs a local FastAPI server bound to `127.0.0.1`, reads the
-same local SQLite index, and ships its frontend as a single HTML file with no CDN
+same local SQLite index, and serves bundled frontend assets with no CDN
 requests. It can index and read any directory you can read, which is why you should
 not expose it on a public interface.
 
@@ -359,7 +392,7 @@ not expose it on a public interface.
 |-------|------------|
 | Language | Python 3.11+ |
 | CLI Framework | Click |
-| AST Parser | tree-sitter via `tree-sitter-language-pack` (TSX + Python grammars) |
+| AST Parser | tree-sitter via `tree-sitter-typescript + tree-sitter-python` (TSX + Python grammars) |
 | Storage | SQLite3 (WAL mode, versioned schema) |
 | Graph Algorithms | BFS with configurable depth; Tarjan's SCC for cycles |
 | Diagram Output | Mermaid TD syntax |
@@ -384,3 +417,13 @@ not expose it on a public interface.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+### Architecture and implementation reader (0.5)
+
+The browser opens with a directory-grouped architecture. `Architecture` groups indexed files by directory depth and aggregates evidence-backed imports, resolved calls and data handoffs. These are source modules, not automatically inferred services or deployment topology. Role labels are directory-name hints.
+
+`Data flow` separates argument inputs, returned results and producer-to-consumer handoffs. Handoffs track direct call results, simple aliases and direct nested call expressions in one straight-line scope. Branch/loop bodies are analyzed independently; provenance never crosses a control-flow join. Dynamic dispatch, mutations, callbacks, HTTP/messages and actual runtime values are not inferred. Static callsite evidence does not guarantee execution.
+
+`File guide` displays module/function documentation, parameters, return expressions, control structures and linked internal callees. Source links include line-numbered excerpts; changed source is flagged against the indexed SHA-256. Export the guide as Markdown. No AI API or external service is involved, so undocumented business semantics still require source review.
+
+Re-index old projects once to populate implementation facts. Incremental indexing reparses unchanged files if those facts are missing. The additive `file_analyses` table preserves compatible v4 indexes; it does not require an eager destructive migration. Offline snapshots include the same reader and source-derived documentation/expressions, while excluding full source bodies.
